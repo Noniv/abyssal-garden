@@ -166,6 +166,28 @@ let D;
   D = new Float32Array(br.getMappedRange().slice(0));
   br.unmap(); br.destroy(); bd.destroy();
 }
+// Terrain collision (collide() below) needs the distance to the rock: d / |grad d| of the density grid, in metres
+// (> 0 in rock). It is clamped to ±1 m and kept in bytes (1/127 m), at full resolution but only in the 4x4x4-voxel
+// bricks near the surface and within the camera's reach: about 2 MB instead of the 80 MB grid. The brick index CI
+// holds 0 for all water, 1 for all rock, or n for brick n-2 in CG. The box: voxels CO to CO+4*CN-1 in x and z, and
+// all of y but the bottom and top bricks (below -53 m and above +1 m: the camera stays between -52 and -1.2).
+const CO = 52, CN = 102, CI = new Uint16Array(CN * CN * NY / 4);
+let CG = new Int8Array(64 * 65534);
+{
+  let n = 0;
+  for (let bz = 0; bz < CN; bz++) for (let by = 1; by < NY / 4 - 1; by++) for (let bx = 0; bx < CN; bx++) {
+    if (hypot(bx - CN / 2 + 0.5, bz - CN / 2 + 0.5) > 52) continue; // more than 156 m out: never reached
+    let lo = 127, hi = -127;
+    for (let z = 0; z < 4; z++) for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+      const i = CO + bx * 4 + x + NX * (by * 4 + y + NY * (CO + bz * 4 + z)), gz = D[i + NX * NY] - D[i - NX * NY];
+      const gx = D[i + 1] - D[i - 1], g = D[i + NX] - D[i - NX], l = sqrt(gx * gx + g * g + gz * gz) / 1.5;
+      const q = round(clamp(D[i] / max(l, 0.05), -1, 1) * 127);
+      CG[n * 64 + x + 4 * y + 16 * z] = q; if (q < lo) lo = q; if (q > hi) hi = q;
+    }
+    CI[bx + CN * (by + NY / 4 * bz)] = lo === hi && lo * lo === 16129 ? +(lo > 0) : (n++, n + 1);
+  }
+  CG = CG.slice(0, n * 64);
+}
 await say('Carving canyons…', 0.32, 400);
 const T = buildTerrain(D);
 
@@ -211,7 +233,7 @@ const FLYN = FLY.length / 6, FLYT = 60, LUTN = 1024, flyLUT = new Float32Array(L
 const flyPts = [];
 // per-frame float state lives in one preallocated array, so the frame loop allocates no heap numbers
 const F = new Float64Array(32), P6 = new Float64Array(6);
-const CX = 0, CY = 1, CZ = 2, YAW = 3, PIT = 4, FX = 5, FY = 6, FZ = 7, RX = 8, RZ = 9, UX = 10, UY = 11, UZ = 12, VX = 13, VY = 14, VZ = 15, TIME = 16, FLT = 17, LAST = 18, GPU = 19, HUDT = 20, SPL = 21;
+const CX = 0, CY = 1, CZ = 2, YAW = 3, PIT = 4, FX = 5, FY = 6, FZ = 7, RX = 8, RZ = 9, UX = 10, UY = 11, UZ = 12, VX = 13, VY = 14, VZ = 15, TIME = 16, FLT = 17, LAST = 18, GPU = 19, HUDT = 20, SPL = 21, MX = 22, MY = 23, MZ = 24;
 // aim the camera from P6 = position + look-at point
 function aim() {
   const dx = P6[3] - P6[0], dy = P6[4] - P6[1], dz = P6[5] - P6[2];
@@ -480,6 +502,38 @@ function render() {
   if (slot) { slot.busy = true; slot.b.mapAsync(GPUMapMode.READ).then(slot.done); }
 }
 
+// CS[j] = distance to the rock (metres, < 0 in water) at the camera moved by CE[3j..3j+2]: the camera itself, then
+// 0.375 m either side along x, y and z for the gradient. (No float crosses a call, so the frame loop allocates nothing.)
+// The camera never leaves the box, so there is no clamping.
+const CE = new Float64Array([0, 0, 0, .375, 0, 0, -.375, 0, 0, 0, .375, 0, 0, -.375, 0, 0, 0, .375, 0, 0, -.375]), CS = new Float64Array(7);
+const cv = (x, y, z) => { const b = CI[(x >> 2) + CN * ((y >> 2) + NY / 4 * (z >> 2))]; return b > 1 ? CG[b * 64 - 128 + (x & 3) + 4 * (y & 3) + 16 * (z & 3)] : b * 254 - 127; };
+function sd(j) {
+  const x = (F[CX] + CE[j * 3] - OX) / VS - CO, y = (F[CY] + CE[j * 3 + 1] - OY) / VS, z = (F[CZ] + CE[j * 3 + 2] - OZ) / VS - CO;
+  const ix = x | 0, iy = y | 0, iz = z | 0, u = x - ix, v = y - iy, a = cv(ix, iy, iz), b = cv(ix, iy + 1, iz), c = cv(ix, iy, iz + 1), d = cv(ix, iy + 1, iz + 1);
+  const p = a + (cv(ix + 1, iy, iz) - a) * u, q = b + (cv(ix + 1, iy + 1, iz) - b) * u, r = c + (cv(ix + 1, iy, iz + 1) - c) * u, s = d + (cv(ix + 1, iy + 1, iz + 1) - d) * u;
+  const e = p + (q - p) * v; CS[j] = (e + (r + (s - r) * v - e) * (z - iz)) / 127;
+}
+// Moves the camera by F[MX..MZ] in steps shorter than its radius CR, so it never gets deep enough into thin rock to
+// come out on the far side, and after each step pushes it back out to CR. Velocity into the rock is dropped, so the
+// camera slides along without sticking. Deep inside rock (only after a jump there) the field is flat and the camera
+// moves freely until it nears the surface, where it is pushed out.
+const CR = 0.5;
+function collide() {
+  const n = floor(sqrt(F[MX] * F[MX] + F[MY] * F[MY] + F[MZ] * F[MZ]) / 0.4) + 1;
+  for (let i = 0; i < n; i++) {
+    F[CX] += F[MX] / n; F[CY] += F[MY] / n; F[CZ] += F[MZ] / n;
+    for (let k = 0; k < 2; k++) {
+      sd(0); const s = CS[0] + CR; if (s <= 0) break;
+      for (let j = 1; j < 7; j++) sd(j);
+      let gx = CS[1] - CS[2], gy = CS[3] - CS[4], gz = CS[5] - CS[6]; const l = sqrt(gx * gx + gy * gy + gz * gz);
+      if (l < 0.075) break; // flat: deep in rock
+      gx /= l; gy /= l; gz /= l; const vn = F[VX] * gx + F[VY] * gy + F[VZ] * gz;
+      F[CX] -= gx * s; F[CY] -= gy * s; F[CZ] -= gz * s;
+      if (vn > 0) { F[VX] -= gx * vn; F[VY] -= gy * vn; F[VZ] -= gz * vn; }
+    }
+  }
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   const dtr = now - F[LAST]; F[LAST] = now;
@@ -523,7 +577,8 @@ function frame(now) {
     let x = F[CX] + vx * dt, y = F[CY] + vy * dt, z = F[CZ] + vz * dt;
     const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
     y = y < -52 ? -52 : y > -1.2 ? -1.2 : y;
-    F[YAW] = yaw; F[PIT] = pitch; F[VX] = vx; F[VY] = vy; F[VZ] = vz; F[CX] = x; F[CY] = y; F[CZ] = z;
+    F[YAW] = yaw; F[PIT] = pitch; F[VX] = vx; F[VY] = vy; F[VZ] = vz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
+    collide();
   }
   render();
   if (hud) {

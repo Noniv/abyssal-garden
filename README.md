@@ -3,7 +3,7 @@
 **A dreamy underwater world you can swim through, right in your browser.**
 
 Towering kelp forests, sunbeams pouring through a rippling surface, a sunken ship, manta rays gliding overhead.
-And all of it is made by code: no images, no 3D models, no sound files. The whole world fits in **one 95 KB HTML file**.
+And all of it is made by code: no images, no 3D models, no sound files. The whole world fits in **one 96 KB HTML file**.
 
 ![Kelp forest with a stone whale tail and a manta ray](.github/screenshots/whale-fluke.jpg)
 
@@ -44,6 +44,8 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 | Sound on / off | `M` (sound starts when you dive in) |
 | Performance stats | `H` |
 | Detail level | **Low**, **Medium** or **High** in the menu (reloads the page) |
+
+The seabed, cliffs and arches are solid: you glide along the rock instead of swimming into it, and you still fit through every tunnel and arch. Kelp, plants, corals, sponges, loose rocks, the floating boulders, the ship and the whale tail you can swim through.
 
 **On a touchscreen:** hold one finger down to swim forward and slide it to steer. Put a second finger down to go faster. The `≡` button in the corner opens the menu. Phones always show the scene in landscape and start on Low or Medium detail. (Touch support is experimental.)
 
