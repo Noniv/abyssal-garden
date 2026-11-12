@@ -2,10 +2,21 @@
 // renderer, camera and input
 // ============================================================================
 const $ = (id) => document.getElementById(id);
-const canvas = $('c'), info = $('i');
-const say = (m) => { info.textContent = m; return new Promise((r) => setTimeout(r, 0)); };
-const fail = (m) => { info.textContent = m; throw new Error(m); };
-if (!navigator.gpu) fail('This scene needs WebGPU (Chrome 113+).');
+const canvas = $('c'), info = $('i'), body = document.body;
+// phones and tablets start at a lower resolution; held upright, the page is turned on its side (see template.html)
+const mob = matchMedia('(pointer:coarse)').matches, rot = matchMedia('(orientation:portrait) and (pointer:coarse)');
+// Loading bar. Each stage names the share of the work that is done when it ends and roughly how long it takes. The
+// bar starts from what is really done and glides to that mark on the compositor, so it keeps moving while this
+// thread is busy; a slow stage leaves it waiting at the mark.
+let loaded = 0;
+const say = (m, to, ms) => {
+  $('s').textContent = m;
+  $('b').animate({ transform: [`scaleX(${loaded})`, `scaleX(${to})`] }, { duration: ms, fill: 'forwards', easing: 'cubic-bezier(.3,.5,.5,1)' });
+  loaded = to;
+  return new Promise((r) => { requestAnimationFrame(() => setTimeout(r)); setTimeout(r, 200); }); // let it paint (the timer covers hidden tabs)
+};
+const fail = (m) => { throw new Error(m, { cause: 1 }); }; // cause marks a message that is shown as it is
+if (!navigator.gpu) fail('This scene needs WebGPU. Try a current Chrome or Edge.');
 const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
 if (!adapter) fail('No WebGPU adapter found.');
 const hasTS = adapter.features.has('timestamp-query');
@@ -76,7 +87,7 @@ const shadowPipe = (m, vsE, buffers, o = {}) => device.createRenderPipeline({ la
   primitive: { topology: o.strip ? 'triangle-strip' : 'triangle-list', cullMode: o.cull || 'none' },
   depthStencil: { format: DEPTH, depthWriteEnabled: true, depthCompare: 'less', depthBias: 2, depthBiasSlopeScale: 1.5 } });
 
-await say('Compiling shaders…');
+await say('Compiling shaders…', 0.05, 300);
 const mSolid = mod(W_SOLID), mLeaf = mod(W_LEAF), mAnim = mod(W_ANIM), mSurf = mod(W_SURF), mSpr = mod(W_SPR);
 const pTerrain = scenePipe(mSolid, 'vs', 'fs', [vbSolid, ibSolid], { cull: 'back' });
 const pSolid = scenePipe(mSolid, 'vs', 'fs', [vbSolid, ibSolid]);
@@ -123,7 +134,7 @@ const SUN = (() => { const v = [0.27, 1, -0.24], l = hypot(...v); return v.map((
 }
 
 // ---------------------------------------------------------------- world generation
-await say('Sculpting the seabed…');
+await say('Sculpting the seabed…', 0.25, 1200);
 let D;
 {
   const prims = primBuffer();
@@ -143,7 +154,7 @@ let D;
   D = new Float32Array(br.getMappedRange().slice(0));
   br.unmap(); br.destroy(); bd.destroy();
 }
-await say('Carving canyons…');
+await say('Carving canyons…', 0.32, 400);
 const T = buildTerrain(D);
 
 // preset viewpoints (position, look-at), keys 1-6; the world generator dresses the scene around them
@@ -155,7 +166,8 @@ const POSES = [
   [10, 1.2, -62, 6, -22, -90],
   [3, 1.6, 62, 1, -28, 100],
 ];
-// fly-through (key F): position + look-at control points, Catmull-Rom, arc-length parametrised, 60 s
+// Camera path through the whole world: position + look-at control points, Catmull-Rom, arc-length parametrised,
+// 60 s. The world generator keeps it clear of kelp and rocks, and the dev build (dev.js) flies along it.
 const FLY = new Float32Array([
   10, -42.2, 7, -9, -31, -10,
   7.5, -41.8, 5.5, -10, -31, -12,
@@ -219,12 +231,12 @@ function flyAt() {
 for (let t = 0; t <= FLYT; t += 0.1) { F[FLT] = t; flyAt(); flyPts.push([F[CX], F[CY], F[CZ]]); }
 for (const p of POSES) flyPts.push([p[0], -40, p[2]]);
 
-await say('Growing kelp…');
+await say('Growing kelp…', 0.73, 2500);
 const Wd = makeWorld(D, T, flyPts, POSES);
 for (const p of POSES) p[1] += Wd.gy(p[0], p[2]);
 D = null; T.smp = null;
 
-await say('Building set pieces…');
+await say('Building set pieces…', 0.94, 1200);
 // mesh ids: 0-3 boulders, 4-6 sponges, 7-8 coral, 9 tube sponge, 10 whale fluke, 11 ship, 12 manta, 13 fish,
 // 14-20 rock chunks + pebbles, 21-22 coral LOD, 23-25 far LOD of the large rock chunks
 const meshes = [meshChunk(1, 3), meshChunk(7, 3), meshChunk(13, 3), meshChunk(22, 3),
@@ -277,15 +289,19 @@ Q.writeTexture({ texture: tMap }, Wd.gm, { bytesPerRow: 2048 }, [512, 512]);
 }
 
 // ---------------------------------------------------------------- render targets (rebuilt on resize)
-let W = 0, H = 0, nativeRes = false, dynI = 0, dynN = 0, dynT = 0, dynBad = 0, dynOk = 0;
-const DYN = [1, 0.85, 0.7, 0.6, 0.5];
+// The scene is drawn with a budget of `pix` pixels and the browser scales the canvas up to the window. The frame
+// loop moves the budget to hold 60 fps: it starts at 1440p (720p on phones) and never goes above 1440p. Most of a
+// frame is geometry, which fewer pixels don't speed up, so the budget stops at about 540p (375p on phones).
+const PIXMAX = 2560 * 1440, PIXMIN = mob ? 25e4 : 5e5;
+let W = 0, H = 0, DW = 0, DH = 0, pix = mob ? 1280 * 720 : PIXMAX, dynN = 0, dynT = 0, dynG = 0, dynGN = 0, dynBad = 0, dynOk = 0, dynWait = 3;
 let passScene, passRays, passBlur, bgBlur, passPost, bgRays, bgPost, bloomPass = [], bloomBG = [], targets = [];
 const NB = 6;
 function resize() {
-  const dw = max(2, round(innerWidth * devicePixelRatio)), dh = max(2, round(innerHeight * devicePixelRatio));
-  const s = (nativeRes ? 1 : min(1, sqrt(2560 * 1440 / (dw * dh)))) * DYN[dynI];
-  const w = max(2, round(dw * s) & ~1), h = max(2, round(dh * s) & ~1);
+  DW = max(2, round(canvas.clientWidth * devicePixelRatio)); DH = max(2, round(canvas.clientHeight * devicePixelRatio));
+  const s = min(1, sqrt(pix / (DW * DH)));
+  const w = max(2, round(DW * s) & ~1), h = max(2, round(DH * s) & ~1);
   if (w === W && h === H) return;
+  dynN = dynG = dynGN = 0; dynT = -300; // let the new size settle before measuring again
   W = w; H = h; canvas.width = W; canvas.height = H;
   ctx.configure({ device, format: FMT, alphaMode: 'opaque' });
   for (const t of targets) t.destroy();
@@ -314,9 +330,7 @@ function resize() {
 resize();
 addEventListener('resize', resize);
 
-// ---------------------------------------------------------------- timing (GPU timestamp queries + frame log)
-const LOGN = 1 << 16, logFrame = new Float32Array(LOGN), logGpu = new Float32Array(LOGN);
-let nFrameLog = 0, nGpuLog = 0, bench = false, benchT0 = 0;
+// ---------------------------------------------------------------- timing (GPU timestamp queries)
 let qs, qResolve, qRead = [], tsBegin, tsEnd;
 if (hasTS) {
   qs = device.createQuerySet({ type: 'timestamp', count: 2 });
@@ -327,7 +341,7 @@ if (hasTS) {
     o.done = () => {
       const a = new BigInt64Array(b.getMappedRange());
       const ms = Number(a[1] - a[0]) / 1e6; F[GPU] = ms; b.unmap(); o.busy = false;
-      if (bench && nGpuLog < LOGN && ms > 0) logGpu[nGpuLog++] = ms;
+      if (dynT > 0 && ms > 0 && ms < 250) { dynG += ms; dynGN++; }
     };
     qRead.push(o);
   }
@@ -335,8 +349,8 @@ if (hasTS) {
 }
 
 // ---------------------------------------------------------------- frame
-let flying = false, hud = false;
-let kf = 0, kb = 0, kl = 0, kr = 0, ku = 0, kd = 0, ks = 0, mdx = 0, mdy = 0, lkx = 0, lky = 0, l2x = 0, l2y = 0, hN = 0, hMax = 0, hMin = 1e9, hPer = 1e9, hLate = 0, hTot = 0, lkR = 30, tId = -1, tN = 0, tx0 = 0, ty0 = 0, tx = 0, ty = 0;
+let hud = false;
+let kf = 0, kb = 0, kl = 0, kr = 0, ku = 0, kd = 0, ks = 0, mdx = 0, mdy = 0, lkx = 0, lky = 0, l2x = 0, l2y = 0, hN = 0, hMax = 0, hMin = 1e9, hPer = 1e9, hLate = 0, hTot = 0, tId = -1, tN = 0, tx0 = 0, ty0 = 0, tx = 0, ty = 0;
 const TANH = 0.6, NEAR = 0.1, EXPO = 0.62, RAYS = 0.54;
 const submitList = [null];
 const rowOrd = new Uint8Array(CELLS);
@@ -393,7 +407,7 @@ function render() {
   { let cr = floor((cz - OZ) / CELLW) | 0; cr = cr < 0 ? 0 : cr > CELLS - 1 ? CELLS - 1 : cr; let n = 0; rowOrd[n++] = cr; for (let d = 1; d < CELLS; d++) { if (cr - d >= 0) rowOrd[n++] = cr - d; if (cr + d < CELLS) rowOrd[n++] = cr + d; } }
   const e = device.createCommandEncoder();
   let slot = null;
-  if (hasTS && (bench || hud)) { for (let i = 0; i < qRead.length; i++) if (!qRead[i].busy) { slot = qRead[i]; break; } }
+  if (hasTS) { for (let i = 0; i < qRead.length; i++) if (!qRead[i].busy) { slot = qRead[i]; break; } }
   waterPass[0].timestampWrites = slot ? tsBegin : undefined;
   passPost.timestampWrites = slot ? tsEnd : undefined;
   // animated water texture + mips
@@ -444,43 +458,34 @@ function render() {
   if (slot) { slot.busy = true; slot.b.mapAsync(GPUMapMode.READ).then(slot.done); }
 }
 
-function endBench() {
-  bench = false; flying = false;
-  const st = (a, n) => { const s = Array.from(a.subarray(0, n)).sort((x, y) => x - y); let sum = 0; for (const v of s) sum += v; return { n, avg: sum / n, p50: s[n >> 1], p99: s[min(n - 1, floor(n * 0.99))], max: s[n - 1] }; };
-  const f = st(logFrame, nFrameLog), g = nGpuLog ? st(logGpu, nGpuLog) : null;
-  const fm = (o) => `avg ${o.avg.toFixed(2)}  p99 ${o.p99.toFixed(2)}  max ${o.max.toFixed(2)} ms`;
-  info.style.opacity = 1;
-  info.textContent = `Fly-through ${W}x${H}, ${f.n} frames\nframe  ${fm(f)}\nGPU    ${g ? fm(g) : 'timestamp-query unavailable'}`;
-}
-function startFly(b) { flying = true; F[FLT] = 0; bench = b; nFrameLog = 0; nGpuLog = 0; benchT0 = 0; if (b) { info.style.transition = 'none'; info.style.opacity = 0; } }
-
 function frame(now) {
   requestAnimationFrame(frame);
   const dtr = now - F[LAST]; F[LAST] = now;
   let dt = dtr / 1000; if (dt > 0.1) dt = 0.1;
-  // dynamic resolution: step down after 2 slow seconds (< 30 fps), back up after 4 fast ones (> 45 fps)
-  if (!bench && dtr < 250) {
-    dynN++; dynT += dtr;
-    if (dynT > 1000) {
-      const avg = dynT / dynN; dynN = 0; dynT = 0;
-      dynBad = avg > 33.4 ? dynBad + 1 : 0; dynOk = avg < 22 ? dynOk + 1 : 0;
-      if (dynBad > 1 && dynI < 4) { dynI++; dynBad = 0; resize(); } else if (dynOk > 3 && dynI > 0) { dynI--; dynOk = 0; resize(); }
-    }
+  // Dynamic resolution, aiming for 60 fps. Every second (0.4 s behind the menu, so it has settled before the dive)
+  // the pixel budget is scaled by k so the frame lands inside the 60 fps budget with some room to spare.
+  if (dtr < 250 && (dynT += dtr) > 0 && (dynN++, dynT > (menu ? 400 : 1000))) {
+    const a = dynT / dynN, g = dynGN ? dynG / dynGN : 0; let k = 1;
+    // measured GPU time says exactly how much room there is: keep it between 9.8 and 13.6 ms
+    if (g) { if (g > 13.6 || g < 9.8) k = 11.7 / g; }
+    // otherwise only frame time is known. Dropping frames for two periods in a row: fewer pixels, and wait twice
+    // as long before the next attempt to go back up.
+    else if (a > 17.6) { dynOk = 0; if (++dynBad > 1) { k = 15 / a; dynBad = 0; dynWait = min(dynWait * 2, 60); } }
+    // Well above 60 fps (fast displays): more pixels. At the display's rate there is no telling, so try a few more.
+    else { dynBad = 0; if (a < 12.5) k = 15 / a; else if (++dynOk > dynWait) { k = 1.17; dynOk = 0; } }
+    k = pix * (k < 0.5 ? 0.5 : k > 1.7 ? 1.7 : k); const top = min(PIXMAX, DW * DH);
+    pix = k < PIXMIN ? PIXMIN : k > top ? top : k; dynN = dynT = dynG = dynGN = 0; resize();
   }
   F[TIME] += dt;
-  if (flying) {
-    if (bench) { if (benchT0 && nFrameLog < LOGN) logFrame[nFrameLog++] = dtr; benchT0 = 1; }
-    F[FLT] += dt; flyAt();
-    if (F[FLT] >= FLYT) { if (bench) endBench(); else flying = false; }
-  } else {
+  {
     // touch: offset from the first touch point steers like a joystick
     if (tId >= 0) {
       const tr = 4 / (innerWidth < innerHeight ? innerWidth : innerHeight); let jx = (tx - tx0) * tr, jy = (ty - ty0) * tr;
       jx = jx > 1 ? 1 : jx < -1 ? -1 : jx; jy = jy > 1 ? 1 : jy < -1 ? -1 : jy;
       lkx += jx * abs(jx) * 1.7 * dt; lky += jy * abs(jy) * 1.2 * dt;
     }
-    // mouse look through two cascaded low-pass stages (rate lkR, adjustable with [ and ])
-    const kq = 1 - exp(-dt * lkR); lkx += mdx * 0.0022; lky += mdy * 0.0022; mdx = 0; mdy = 0;
+    // mouse look through two cascaded low-pass stages
+    const kq = 1 - exp(-dt * 30); lkx += mdx * 0.0022; lky += mdy * 0.0022; mdx = 0; mdy = 0;
     const ax = lkx * kq, ay = lky * kq; lkx -= ax; lky -= ay; l2x += ax; l2y += ay;
     const dyw = l2x * kq, dpt = l2y * kq; l2x -= dyw; l2y -= dpt;
     const yaw = F[YAW] + dyw; let pitch = F[PIT] - dpt; pitch = pitch < -1.55 ? -1.55 : pitch > 1.55 ? 1.55 : pitch;
@@ -495,7 +500,7 @@ function frame(now) {
   if (hud) {
     hN++; if (dtr > hMax) hMax = dtr; if (dtr < hMin) hMin = dtr; if (dtr > hPer * 1.5) { hLate++; hTot++; }
     F[HUDT] += dtr / 1000;
-    if (F[HUDT] > 0.5) { info.textContent = `${(hN / F[HUDT]).toFixed(0)} fps  ·  worst frame ${hMax.toFixed(1)} ms  ·  late frames ${hLate} (total ${hTot})  ·  GPU ${F[GPU].toFixed(2)} ms  ·  ${W}x${H} (${DYN[dynI] * 100 | 0}%)  ·  look smoothing ${(2000 / lkR).toFixed(0)} ms`; F[HUDT] = 0; hPer = hMin; hN = 0; hMax = 0; hMin = 1e9; hLate = 0; }
+    if (F[HUDT] > 0.5) { info.textContent = `${(hN / F[HUDT]).toFixed(0)} fps  ·  worst frame ${hMax.toFixed(1)} ms  ·  late frames ${hLate} (total ${hTot})  ·  GPU ${F[GPU].toFixed(2)} ms  ·  ${W}x${H} (${W * 100 / DW | 0}%)`; F[HUDT] = 0; hPer = hMin; hN = 0; hMax = 0; hMin = 1e9; hLate = 0; }
   }
 }
 
@@ -505,28 +510,54 @@ const key = (e, v) => {
     case 'KeyW': kf = v; break; case 'KeyS': kb = v; break; case 'KeyA': kl = v; break; case 'KeyD': kr = v; break;
     case 'KeyE': ku = v; break; case 'KeyQ': kd = v; break; case 'ShiftLeft': case 'ShiftRight': ks = v; break;
     default: if (v && !e.repeat) {
-      if (e.code === 'KeyF') startFly(false); else if (e.code === 'KeyB') startFly(true);
-      else if (e.code === 'BracketLeft') lkR = lkR > 6 ? lkR / 1.5 : lkR; else if (e.code === 'BracketRight') lkR = lkR < 60 ? lkR * 1.5 : lkR;
-      else if (e.code === 'KeyH') { hud = !hud; hTot = 0; hPer = 1e9; info.style.opacity = hud ? 1 : 0; }
-      else if (e.code === 'KeyR') { nativeRes = !nativeRes; resize(); }
+      if (e.code === 'KeyH') { hud = !hud; hTot = 0; hPer = 1e9; info.textContent = ''; }
       else if (e.code === 'KeyM') mute();
-      else if (e.code >= 'Digit1' && e.code <= 'Digit6') { flying = false; lookAt(...POSES[e.code.charCodeAt(5) - 49]); }
+      else if (e.code === 'Escape') ui(true);
+      else if (e.code >= 'Digit1' && e.code <= 'Digit6') lookAt(...POSES[e.code.charCodeAt(5) - 49]);
     }
   }
 };
-addEventListener('keydown', (e) => { sound(); key(e, 1); });
+// behind the menu only the stats and mute keys work
+addEventListener('keydown', (e) => { if (menu && e.code !== 'KeyH' && e.code !== 'KeyM') return; sound(); key(e, 1); });
 addEventListener('keyup', (e) => key(e, 0));
-canvas.addEventListener('click', () => { sound(); const p = canvas.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => canvas.requestPointerLock()); if (!hud && !bench) info.style.opacity = 0; });
+const release = () => { kf = kb = kl = kr = ku = kd = ks = 0; tId = -1; tN = 0; };
+const capture = () => { sound(); const p = canvas.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => canvas.requestPointerLock()).catch(() => 0); };
+canvas.addEventListener('click', capture);
 addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas) { mdx += e.movementX; mdy += e.movementY; } });
-addEventListener('blur', () => { kf = kb = kl = kr = ku = kd = ks = 0; tId = -1; tN = 0; });
+addEventListener('blur', release);
 const touch = (e) => {
   e.preventDefault(); sound(); tN = e.touches.length;
-  let f = null; for (let i = 0; i < tN; i++) if (e.touches[i].identifier === tId) f = e.touches[i];
-  if (!f) { tId = -1; if (tN) { f = e.touches[0]; tId = f.identifier; tx0 = f.clientX; ty0 = f.clientY; if (!hud && !bench) info.style.opacity = 0; } }
-  if (f) { tx = f.clientX; ty = f.clientY; }
+  let f = null, first = false; for (let i = 0; i < tN; i++) if (e.touches[i].identifier === tId) f = e.touches[i];
+  if (!f) { tId = -1; if (tN) { f = e.touches[0]; tId = f.identifier; first = true; } }
+  if (f) {
+    // the touch axes turn with the page when it lies on its side
+    if (rot.matches) { tx = f.clientY; ty = -f.clientX; } else { tx = f.clientX; ty = f.clientY; }
+    if (first) { tx0 = tx; ty0 = ty; }
+  }
 };
 for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) canvas.addEventListener(n, touch, { passive: false });
 
+// ---------------------------------------------------------------- menu
+// The scene keeps rendering (blurred by CSS) behind the menu. Esc, losing the mouse or the corner button open it.
+let menu = true;
+const bDive = $('d');
+const ui = (m) => {
+  menu = m; body.className = m ? 'm' : document.pointerLockElement ? 'g p' : 'g';
+  // Enter starts the dive: focus the button (a moment later, it can't take focus in the instant it turns visible)
+  if (m) { release(); setTimeout(() => menu && bDive.focus(), 100); } else document.activeElement.blur();
+};
+const go = () => {
+  sound(); ui(false); bDive.textContent = 'Resume';
+  // phones: go fullscreen and ask for landscape; where that is refused the CSS rotation still applies
+  if (mob) document.documentElement.requestFullscreen?.()?.then(() => screen.orientation.lock('landscape')).catch(() => 0);
+  if (!mob) capture();
+};
+bDive.onclick = go; $('o').onclick = () => ui(true);
+document.addEventListener('pointerlockchange', () => ui(!document.pointerLockElement));
+
+// draw the first frame and wait for the GPU to finish it (pipelines get compiled on first use) before the reveal
 lookAt(...POSES[0]);
-info.textContent = 'Click to look around  ·  WASD move  ·  Q/E down/up  ·  Shift fast\n1-6 viewpoints  ·  F fly-through  ·  B benchmark  ·  H stats  ·  R native resolution  ·  [ ] look smoothing  ·  M mute\nTouch: hold to fly forward  ·  slide away from where you pressed to steer  ·  second finger = fast';
+await say('Letting the light in…', 1, 400);
+render(); await Q.onSubmittedWorkDone();
+ui(true);
 requestAnimationFrame((t) => { F[LAST] = t; requestAnimationFrame(frame); });

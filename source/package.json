@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "build:readable": "node build.mjs --readable"
+    "build:readable": "node build.mjs --readable",
+    "build:dev": "node build.mjs --dev"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
