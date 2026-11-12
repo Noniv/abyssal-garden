@@ -3,7 +3,7 @@
 **A dreamy underwater world you can swim through, right in your browser.**
 
 Towering kelp forests, sunbeams pouring through a rippling surface, a sunken ship, manta rays gliding overhead.
-And all of it is made by code: no images, no 3D models, no sound files. The whole world fits in **one 93 KB HTML file**.
+And all of it is made by code: no images, no 3D models, no sound files. The whole world fits in **one 95 KB HTML file**.
 
 ![Kelp forest with a stone whale tail and a manta ray](.github/screenshots/whale-fluke.jpg)
 
@@ -43,8 +43,21 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 | Menu | `Esc` releases the mouse and opens the menu with the list of controls; **Resume** takes you back |
 | Sound on / off | `M` (sound starts when you dive in) |
 | Performance stats | `H` |
+| Detail level | **Low**, **Medium** or **High** in the menu (reloads the page) |
 
-**On a touchscreen:** hold one finger down to swim forward and slide it to steer. Put a second finger down to go faster. The `≡` button in the corner opens the menu. Phones always show the scene in landscape and start at 720p. (Touch support is experimental.)
+**On a touchscreen:** hold one finger down to swim forward and slide it to steer. Put a second finger down to go faster. The `≡` button in the corner opens the menu. Phones always show the scene in landscape and start on Low or Medium detail. (Touch support is experimental.)
+
+## Detail levels
+
+The **Low**, **Medium** and **High** buttons in the menu pick the detail level; the current one is lit. Each level is the same world, built with less in it:
+
+| Level | What it is | Picked on a first visit for |
+|---|---|---|
+| **High** | The full scene | Computers |
+| **Medium** | Half of the leaves, sparkles and pebbles; small rocks, sponges and corals cast no shadows | Phones with 8 GB of memory |
+| **Low** | A quarter of the leaves, no anti-aliasing, coarser rocks and corals, simpler lighting, 480p to start with | Other phones, and computers with 4 GB of memory or less |
+
+If loading crashes the tab, or the graphics driver gives up, the page starts again one level lower. Your browser remembers the level, and the resolution and draw distance the scene settled on, for the next visit.
 
 ## How it works
 
@@ -52,7 +65,7 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 - Everything is drawn with **WebGPU** directly. No game engine or 3D library is used.
 - The ship, whale tail, mantas, fish and corals are built from simple mathematical shapes.
 - The sound is synthesized live with the Web Audio API.
-- It's built to run smoothly: about 180 fps at 2560×1440 on an RTX 5070 Ti. On slower hardware it aims for 60 fps by adjusting the resolution in small steps. The scene is already running, blurred, behind the start menu, so most of that tuning is done before you dive in.
+- It's built to run smoothly: about 180 fps at 2560×1440 on an RTX 5070 Ti. On slower hardware it aims for 60 fps by lowering first the resolution and then how far away plants and rocks are drawn, in small steps. The scene is already running, blurred, behind the start menu, so most of that tuning is done before you dive in. A low-end phone (Samsung Galaxy A16) reaches about 20 fps at 670×372 on Low.
 
 ## Make it your own
 
@@ -74,6 +87,7 @@ This writes a new `index.html` next to this README. `npm run build:readable` wri
 | [`source/src/shaders.js`](source/src/shaders.js) | The look: water and fog colors, lighting, kelp, rocks, the water surface and light rays (WGSL shader code) |
 | [`source/src/main.js`](source/src/main.js) | The renderer, the camera, the controls, the six viewpoints and the camera path the world is laid out around |
 | [`source/src/audio.js`](source/src/audio.js) | The soundscape |
+| [`source/src/quality.js`](source/src/quality.js) | The detail levels: which one a device starts on, and what is remembered between visits |
 | [`source/src/math.js`](source/src/math.js) | Noise, random numbers and mesh-building helpers |
 | [`source/src/dev.js`](source/src/dev.js) | Development tools (fly-through and benchmark), only in `dev.html` |
 | [`source/template.html`](source/template.html) | The page around the scene: loading bar, start menu, links and their styles |

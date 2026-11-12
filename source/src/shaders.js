@@ -176,7 +176,7 @@ fn caus(uv: vec2f, t: f32) -> f32 {
 const WK = array<vec3f, 10>(vec3f(1., 2., 1.), vec3f(-2., 1., .9), vec3f(3., 1., .6), vec3f(1., -4., .5), vec3f(4., 3., .4),
   vec3f(-3., 5., .32), vec3f(6., -2., .28), vec3f(5., 7., .2), vec3f(-8., 3., .18), vec3f(2., 11., .14));
 @fragment fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
-  let uv = fc.xy / 512.; let t = tm.x;
+  let uv = fc.xy / ${WATER}.; let t = tm.x;
   let c = caus(uv, t * .45 + 23.);
   let wu = uv + .02 * vec2f(sin(6.2831853 * (uv.y * 2. + .1 * t)), cos(6.2831853 * (uv.x * 3. - .07 * t)));
   var s = vec2f(0.);
@@ -198,6 +198,7 @@ const KDZ = vec3f(.034, .023, .018);
 const PCOL = vec3f(.58, .66, .98);
 const SUNC = vec3f(1.7, 1.6, 1.45);
 const TAU = 6.2831853;
+const LOW = ${LV > 1}; // quality level Low (quality.js)
 fn sat(x: f32) -> f32 { return clamp(x, 0., 1.); }
 fn ss(a: f32, b: f32, x: f32) -> f32 { let t = clamp((x - a) / (b - a), 0., 1.); return t * t * (3. - 2. * t); }
 fn ign(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(.06711056, .00583715)))); }
@@ -229,12 +230,13 @@ const S_B = S_G + /*wgsl*/`
 fn shUV(p: vec3f) -> vec3f { let s = g.sm * vec4f(p, 1.); return vec3f(s.x * .5 + .5, .5 - s.y * .5, s.z - .0007); }
 fn shadow1(p: vec3f) -> f32 { let s = shUV(p); return textureSampleCompareLevel(tSh, sS, s.xy, s.z); }
 fn shadow4(p: vec3f) -> f32 {
-  let s = shUV(p); let e = 1.8 / 4096.;
+  let s = shUV(p); let e = 1.8 / ${SHADOW}.;
   return (textureSampleCompareLevel(tSh, sS, s.xy + vec2f(-e, -e), s.z) + textureSampleCompareLevel(tSh, sS, s.xy + vec2f(e, -e), s.z)
         + textureSampleCompareLevel(tSh, sS, s.xy + vec2f(-e, e), s.z) + textureSampleCompareLevel(tSh, sS, s.xy + vec2f(e, e), s.z)) * .25;
 }
 fn shadow9(p: vec3f) -> f32 {
-  let s = shUV(p); let e = 2.1 / 4096.; var a = 0.;
+  if (LOW) { return shadow1(p); }
+  let s = shUV(p); let e = 2.1 / ${SHADOW}.; var a = 0.;
   for (var x = -1; x <= 1; x++) { for (var y = -1; y <= 1; y++) { a += textureSampleCompareLevel(tSh, sS, s.xy + vec2f(f32(x), f32(y)) * e, s.z); } }
   return a / 9.;
 }
@@ -275,7 +277,7 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
 @vertex fn vs(i: VI) -> VO {
   var o: VO;
   var sc = i.a.w;
-  if (i.c.x < 1.5 && i.c.z > 1.5 && g.res.x > 0.) { sc *= 1. - ss(i.c.z * .7, i.c.z, distance(i.a.xyz, g.cam.xyz)); }
+  if (i.c.x < 1.5 && i.c.z > 1.5 && g.res.x > 0.) { sc *= 1. - ss(i.c.z * .7, i.c.z, distance(i.a.xyz, g.cam.xyz) / g.mis.z); }
   var w = i.a.xyz + qrot(i.b, i.p * sc);
   w.y += sin(g.cam.w * .3 + i.c.y * 40.) * i.c.w;
   o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = qrot(i.b, i.n.xyz); o.op = i.p * i.a.w + i.c.y * 37.; o.on = i.n.xyz;
@@ -429,9 +431,9 @@ fn pal(h: f32) -> vec3f {
   let S = sd * cos(tw) + N * sin(tw); let N2 = N * cos(tw) - sd * sin(tw);
   let shape = pow(max(sin(3.14159 * pow(v, shp.x)), 0.), shp.y);
   let shp_ = g.res.x == 0.;
-  let cd = distance(i.a.xyz, g.cam.xyz);
+  let cd = distance(i.a.xyz, g.cam.xyz); let far = FAR * g.mis.z;
   let nearK = select(1. - ss(26., 40., cd), 0., shp_);
-  let farK = select((1. - ss(FAR * .8, FAR, cd)) * ss(.6, 2.2, distance(c, g.cam.xyz)) * ss(len * 1.1 + .5, len * 2.2 + 1.2, distance(i.a.xyz + d * (len * .5), g.cam.xyz)), 1., shp_);
+  let farK = select((1. - ss(far * .8, far, cd)) * ss(.6, 2.2, distance(c, g.cam.xyz)) * ss(len * 1.1 + .5, len * 2.2 + 1.2, distance(i.a.xyz + d * (len * .5), g.cam.xyz)), 1., shp_);
   let ruf = sin(v * 10. + s2 * 30. + t * .6) * i.b.z * .36 * u * shape2(v) * nearK;
   var p = c + S * (u * farK * select(i.b.z * .5 * shape, select(max(i.b.z * .5, .09) * shape, 0., ty == 1), shp_));
   p += N2 * ruf;
@@ -674,7 +676,7 @@ const W_RAYS = S_G + W_FS + /*wgsl*/`
 @group(0) @binding(2) var sS: sampler_comparison;
 @group(0) @binding(3) var tSh: texture_depth_2d;
 @group(0) @binding(4) var tW: texture_2d<f32>;
-@group(0) @binding(5) var tDp: texture_depth_multisampled_2d;
+@group(0) @binding(5) var tDp: texture_depth${AA > 1 ? '_multisampled' : ''}_2d;
 @group(0) @binding(6) var tV: texture_3d<f32>;
 @group(0) @binding(7) var sC: sampler;
 @fragment fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
@@ -687,10 +689,10 @@ const W_RAYS = S_G + W_FS + /*wgsl*/`
   var tm = min(zl * rl, 120.);
   if (rd.y > 1e-4) { tm = min(tm, -g.cam.y / rd.y); }
   let ro = g.cam.xyz; let sx = g.sun.xyz; let k = kd(g.sun.w); let sgz = sg(g.sun.w);
-  let dt = tm / 34.;
+  let dt = tm / ${RAYN}.;
   let j = ign(fc.xy);
   var acc = vec3f(0.);
-  for (var n = 0; n < 34; n++) {
+  for (var n = 0; n < ${RAYN}; n++) {
     let t = (f32(n) + j) * dt;
     let p = ro + rd * t;
     let s = g.sm * vec4f(p, 1.);
@@ -730,7 +732,7 @@ const W_POST = S_G + W_FS + /*wgsl*/`
 @group(0) @binding(2) var tS: texture_2d<f32>;
 @group(0) @binding(3) var tR: texture_2d<f32>;
 @group(0) @binding(4) var tB: texture_2d<f32>;
-@group(0) @binding(5) var tDp: texture_depth_multisampled_2d;
+@group(0) @binding(5) var tDp: texture_depth${AA > 1 ? '_multisampled' : ''}_2d;
 fn tmap(x: vec3f) -> vec3f { return sat3((x * (2.51 * x + .03)) / (x * (2.43 * x + .59) + .14)); }
 fn sat3(x: vec3f) -> vec3f { return clamp(x, vec3f(0.), vec3f(1.)); }
 @fragment fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {

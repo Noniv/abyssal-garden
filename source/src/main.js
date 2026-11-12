@@ -3,17 +3,19 @@
 // ============================================================================
 const $ = (id) => document.getElementById(id);
 const canvas = $('c'), info = $('i'), body = document.body;
-// phones and tablets start at a lower resolution; held upright, the page is turned on its side (see template.html)
-const mob = matchMedia('(pointer:coarse)').matches, rot = matchMedia('(orientation:portrait) and (pointer:coarse)');
+// a phone held upright gets the page turned on its side (see template.html)
+const rot = matchMedia('(orientation:portrait) and (pointer:coarse)');
 // Loading bar. Each stage names the share of the work that is done when it ends and roughly how long it takes. The
 // bar starts from what is really done and glides to that mark on the compositor, so it keeps moving while this
 // thread is busy; a slow stage leaves it waiting at the mark.
-let loaded = 0;
+let loaded = 0, dead; // dead: the graphics device was lost (see below)
 const say = (m, to, ms) => {
-  $('s').textContent = m;
-  $('b').animate({ transform: [`scaleX(${loaded})`, `scaleX(${to})`] }, { duration: ms, fill: 'forwards', easing: 'cubic-bezier(.3,.5,.5,1)' });
+  if (!dead) $('s').textContent = m;
+  const a = $('b').animate({ transform: [`scaleX(${loaded})`, `scaleX(${to})`] }, { duration: ms, fill: 'forwards', easing: 'cubic-bezier(.3,.5,.5,1)' });
   loaded = to;
-  return new Promise((r) => { requestAnimationFrame(() => setTimeout(r)); setTimeout(r, 200); }); // let it paint (the timer covers hidden tabs)
+  // Go on when the bar is really moving. On a phone that can take a few frames, and an animation that has not
+  // started by the time this thread gets busy stays stuck at an earlier mark. (The timer covers hidden tabs.)
+  return new Promise((r) => { a.ready.then(() => setTimeout(r)); setTimeout(r, document.hidden ? 0 : 1e3); });
 };
 const fail = (m) => { throw new Error(m, { cause: 1 }); }; // cause marks a message that is shown as it is
 if (!navigator.gpu) fail('This scene needs WebGPU. Try a current Chrome or Edge.');
@@ -22,8 +24,15 @@ if (!adapter) fail('No WebGPU adapter found.');
 const hasTS = adapter.features.has('timestamp-query');
 const device = await adapter.requestDevice({ requiredFeatures: hasTS ? ['timestamp-query'] : [] });
 device.addEventListener('uncapturederror', (e) => console.error('GPU: ' + e.error.message));
+// The driver gave up (out of memory, or one job took too long) and the scene would stay black: start again a level
+// lower, or on Low say what happened.
+device.lost.then((l) => {
+  if (l.reason === 'destroyed') return; // the page is closing
+  if (LV < 2) { keep('abyssal', LV + 1); location.reload(); }
+  dead = body.className = 'l e'; $('s').textContent = 'The graphics device was lost. Reload the page to try again.';
+});
 const ctx = canvas.getContext('webgpu'), FMT = navigator.gpu.getPreferredCanvasFormat();
-const Q = device.queue, HDR = 'rgba16float', DEPTH = 'depth32float', SHADOW = 4096;
+const Q = device.queue, HDR = 'rgba16float', DEPTH = 'depth32float';
 const TU = GPUTextureUsage, BU = GPUBufferUsage, SS = GPUShaderStage;
 
 const mod = (code) => device.createShaderModule({ code });
@@ -31,12 +40,12 @@ const buf = (data, usage) => { const b = device.createBuffer({ size: (data.byteL
 const tex = (w, h, format, usage, o = {}) => device.createTexture({ size: [w, h, o.d || 1], format, usage, mipLevelCount: o.mips || 1, sampleCount: o.samples || 1, dimension: o.d ? '3d' : '2d' });
 
 // ---------------------------------------------------------------- static resources
-const sRep = device.createSampler({ addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', maxAnisotropy: 8 });
+const sRep = device.createSampler({ addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', maxAnisotropy: LV > 1 ? 1 : 8 });
 const sClamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 const sCmp = device.createSampler({ compare: 'less-equal', magFilter: 'linear', minFilter: 'linear' });
 const tShadow = tex(SHADOW, SHADOW, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING);
 const tDummy = tex(1, 1, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING);
-const tWater = tex(512, 512, HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { mips: 5 });
+const tWater = tex(WATER, WATER, HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { mips: 5 });
 const tDetail = tex(1024, 1024, 'rgba8unorm', TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { mips: 11 });
 const tVol = tex(NX / 2, NY / 2, 'rg8unorm', TU.TEXTURE_BINDING | TU.COPY_DST, { d: NZ / 2 });
 const tMap = tex(512, 512, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST);
@@ -81,7 +90,7 @@ const scenePipe = (m, vsE, fsE, buffers, o = {}) => device.createRenderPipeline(
   vertex: { module: m, entryPoint: vsE, buffers, constants: o.constants },
   fragment: { module: m, entryPoint: fsE, targets: [{ format: HDR, blend: o.blend }] },
   primitive: { topology: o.strip ? 'triangle-strip' : 'triangle-list', cullMode: o.cull || 'none' },
-  depthStencil: { format: DEPTH, depthWriteEnabled: !o.blend, depthCompare: 'greater' }, multisample: { count: 4 } });
+  depthStencil: { format: DEPTH, depthWriteEnabled: !o.blend, depthCompare: 'greater' }, multisample: { count: AA } });
 const shadowPipe = (m, vsE, buffers, o = {}) => device.createRenderPipeline({ layout: pl0,
   vertex: { module: m, entryPoint: vsE, buffers, constants: o.constants },
   primitive: { topology: o.strip ? 'triangle-strip' : 'triangle-list', cullMode: o.cull || 'none' },
@@ -129,12 +138,15 @@ const SUN = (() => { const v = [0.27, 1, -0.24], l = hypot(...v); return v.map((
   m[3] = 0; m[7] = 0; m[11] = 0; m[15] = 1;
   for (let i = 0; i < 16; i++) { UBS[16 + i] = m[i]; UB[16 + i] = m[i]; }
   for (let i = 0; i < 3; i++) { UB[48 + i] = UBS[48 + i] = SUN[i]; }
-  UBS[32] = 0; UBS[33] = -20; UBS[34] = 0; UBS[35] = 0;
+  UBS[32] = 0; UBS[33] = -20; UBS[34] = 0; UBS[35] = 0; UBS[58] = 1;
   Q.writeBuffer(uboS, 0, UBS);
 }
 
 // ---------------------------------------------------------------- world generation
 await say('Sculpting the seabed…', 0.25, 1200);
+// marks a load in progress (quality.js); leaving the page before it ends is not a crash
+keep('abyssalLoad', 1);
+addEventListener('pagehide', () => keep('abyssalLoad', ''));
 let D;
 {
   const prims = primBuffer();
@@ -234,7 +246,7 @@ for (const p of POSES) flyPts.push([p[0], -40, p[2]]);
 await say('Growing kelp…', 0.73, 2500);
 const Wd = makeWorld(D, T, flyPts, POSES);
 for (const p of POSES) p[1] += Wd.gy(p[0], p[2]);
-D = null; T.smp = null;
+D = Wd.gy = T.smp = null; // with gy goes the generator's working memory (about 200 MB)
 
 await say('Building set pieces…', 0.94, 1200);
 // mesh ids: 0-3 boulders, 4-6 sponges, 7-8 coral, 9 tube sponge, 10 whale fluke, 11 ship, 12 manta, 13 fish,
@@ -281,19 +293,26 @@ Q.writeTexture({ texture: tMap }, Wd.gm, { bytesPerRow: 2048 }, [512, 512]);
   r.drawIndexed(T.ib.length, 1, 0, 0, nSolid);
   r.setPipeline(pSolidSh); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32');
   for (let i = 0; i < 12; i++) { const g = Wd.solids.ranges[i]; if (g[1]) r.drawIndexed(meshes[i].ib.length, g[1], meshes[i].i0, meshes[i].v0, g[0]); }
-  for (let i = 0; i < NCHUNK; i++) { r.setVertexBuffer(1, ibChunk[i]); r.drawIndexed(meshes[14 + i].ib.length, Wd.chunks[i].n, meshes[14 + i].i0, meshes[14 + i].v0, 0); }
-  for (let i = 0; i < 6; i++) if (Wd.props[i].n) { r.setVertexBuffer(1, ibProp[i]); r.drawIndexed(meshes[4 + i].ib.length, Wd.props[i].n, meshes[4 + i].i0, meshes[4 + i].v0, 0); }
+  // The small rocks, sponges and corals are most of this pass, about 35 million triangles: too much for a weak GPU
+  // in one go (a phone's driver gives up), so only High bakes their shadows.
+  if (!LV) for (let i = 0; i < NCHUNK; i++) { r.setVertexBuffer(1, ibChunk[i]); r.drawIndexed(meshes[14 + i].ib.length, Wd.chunks[i].n, meshes[14 + i].i0, meshes[14 + i].v0, 0); }
+  if (!LV) for (let i = 0; i < 6; i++) if (Wd.props[i].n) { r.setVertexBuffer(1, ibProp[i]); r.drawIndexed(meshes[4 + i].ib.length, Wd.props[i].n, meshes[4 + i].i0, meshes[4 + i].v0, 0); }
   r.setPipeline(pLeafSh); r.setVertexBuffer(0, ibBig); r.draw(6, Wd.big.n);
   r.end();
   Q.submit([e.finish()]);
 }
+// the GPU has its own copies now: let go of the generator's (about 300 MB)
+for (const o of [Wd.big, Wd.bigF, Wd.small, ...Wd.chunks, ...Wd.props]) o.buf = o.data = 0;
+Wd.glints = Wd.volD = Wd.gm = T.vb = T.ib = T.wp = T.wn = 0;
 
 // ---------------------------------------------------------------- render targets (rebuilt on resize)
 // The scene is drawn with a budget of `pix` pixels and the browser scales the canvas up to the window. The frame
-// loop moves the budget to hold 60 fps: it starts at 1440p (720p on phones) and never goes above 1440p. Most of a
-// frame is geometry, which fewer pixels don't speed up, so the budget stops at about 540p (375p on phones).
-const PIXMAX = 2560 * 1440, PIXMIN = mob ? 25e4 : 5e5;
-let W = 0, H = 0, DW = 0, DH = 0, pix = mob ? 1280 * 720 : PIXMAX, dynN = 0, dynT = 0, dynG = 0, dynGN = 0, dynBad = 0, dynOk = 0, dynWait = 3;
+// loop moves the budget to hold 60 fps: it starts at 1440p (720p on phones, 480p on Low) and never goes above 1440p.
+// Most of a frame is geometry, which fewer pixels don't speed up, so the budget stops at about 540p (375p on
+// phones) and the loop also scales the draw distances by `det`, between 1 and DETMIN. Both start where the last
+// visit left them.
+const PIXMAX = 2560 * 1440, PIXMIN = mob ? 25e4 : 5e5, DETMIN = 0.4;
+let W = 0, H = 0, DW = 0, DH = 0, pix = +SV[1] || (LV > 1 ? 41e4 : mob ? 1280 * 720 : PIXMAX), det = +SV[2] || 1, dynN = 0, dynT = 0, dynG = 0, dynGN = 0, dynBad = 0, dynOk = 0, dynWait = 3;
 let passScene, passRays, passBlur, bgBlur, passPost, bgRays, bgPost, bloomPass = [], bloomBG = [], targets = [];
 const NB = 6;
 function resize() {
@@ -305,13 +324,14 @@ function resize() {
   W = w; H = h; canvas.width = W; canvas.height = H;
   ctx.configure({ device, format: FMT, alphaMode: 'opaque' });
   for (const t of targets) t.destroy();
-  const tMS = tex(W, H, HDR, TU.RENDER_ATTACHMENT, { samples: 4 }), tDp = tex(W, H, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { samples: 4 });
+  const tMS = tex(AA > 1 ? W : 1, H, HDR, TU.RENDER_ATTACHMENT, { samples: AA }), tDp = tex(W, H, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { samples: AA });
   const tRes = tex(W, H, HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING), tRay = tex(W / 2, H / 2, HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING), tRay2 = tex(W / 2, H / 2, HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING);
   targets = [tMS, tDp, tRes, tRay, tRay2];
   const bl = [];
   for (let i = 0; i < NB; i++) { const t = tex(max(1, W >> (i + 1)), max(1, H >> (i + 1)), HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING); bl.push(t); targets.push(t); }
   const vDp = tDp.createView(), vRes = tRes.createView(), vRay = tRay.createView(), vRay2 = tRay2.createView(), vBl = bl.map((t) => t.createView());
-  passScene = { colorAttachments: [{ view: tMS.createView(), resolveTarget: vRes, loadOp: 'clear', storeOp: 'discard', clearValue: [0, 0, 0, 1] }],
+  // without anti-aliasing (Low) the scene goes straight into the resolve target, and tMS is one unused column
+  passScene = { colorAttachments: [{ view: AA > 1 ? tMS.createView() : vRes, resolveTarget: AA > 1 ? vRes : undefined, loadOp: 'clear', storeOp: AA > 1 ? 'discard' : 'store', clearValue: [0, 0, 0, 1] }],
     depthStencilAttachment: { view: vDp, depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'store' } };
   passRays = { colorAttachments: [colorAtt(vRay, true)] };
   passBlur = { colorAttachments: [colorAtt(vRay2, true)] };
@@ -341,7 +361,7 @@ if (hasTS) {
     o.done = () => {
       const a = new BigInt64Array(b.getMappedRange());
       const ms = Number(a[1] - a[0]) / 1e6; F[GPU] = ms; b.unmap(); o.busy = false;
-      if (dynT > 0 && ms > 0 && ms < 250) { dynG += ms; dynGN++; }
+      if (dynT > 0 && ms > 0 && ms < 1e3) { dynG += ms; dynGN++; }
     };
     qRead.push(o);
   }
@@ -355,10 +375,12 @@ const TANH = 0.6, NEAR = 0.1, EXPO = 0.62, RAYS = 0.54;
 const submitList = [null];
 const rowOrd = new Uint8Array(CELLS);
 // Draws the visible cells of a cell-sorted buffer as merged runs, nearest rows first (helps early-z).
-// A cell is drawn if it intersects the view frustum and its horizontal distance lies in [minD, maxD).
+// A cell is drawn if it intersects the view frustum and its horizontal distance lies in [minD, maxD); for everything
+// but the terrain these distances are scaled by `det`.
 function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
   const cx = F[CX], cy = F[CY], cz = F[CZ], fx = F[FX], fy = F[FY], fz = F[FZ], rx = F[RX], rz = F[RZ], ux = F[UX], uy = F[UY], uz = F[UZ];
-  const tx = TANH * W / H, hw = CELLW * 0.5, ex = hw + mar, min2 = minD * minD, max2 = maxD * maxD;
+  const ds = indexed === 1 ? 1 : det * det;
+  const tx = TANH * W / H, hw = CELLW * 0.5, ex = hw + mar, min2 = minD * minD * ds, max2 = maxD * maxD * ds;
   for (let k = 0; k < CELLS; k++) {
     const rw = rowOrd[k], row = rw * CELLS, pz = OZ + (rw + 0.5) * CELLW - cz, hz = max(abs(pz) - hw, 0);
     let run = -1;
@@ -400,7 +422,7 @@ function render() {
   const zx = cx - PURPLE[0], zz = cz - PURPLE[1]; let zt = (44 - sqrt(zx * zx + zz * zz)) / 18; zt = zt < 0 ? 0 : zt > 1 ? 1 : zt;
   m[51] = zt * zt * (3 - 2 * zt);
   let ek = (-cy - 8) / 26; ek = ek < 0 ? 0 : ek > 1 ? 1 : ek;
-  m[56] = EXPO * (0.6 + 0.4 * ek); m[57] = RAYS;
+  m[56] = EXPO * (0.6 + 0.4 * ek); m[57] = RAYS; m[58] = det;
   Q.writeBuffer(ubo, 0, UB);
   WT[0] = F[TIME]; Q.writeBuffer(uboW, 0, WT);
 
@@ -464,7 +486,7 @@ function frame(now) {
   let dt = dtr / 1000; if (dt > 0.1) dt = 0.1;
   // Dynamic resolution, aiming for 60 fps. Every second (0.4 s behind the menu, so it has settled before the dive)
   // the pixel budget is scaled by k so the frame lands inside the 60 fps budget with some room to spare.
-  if (dtr < 250 && (dynT += dtr) > 0 && (dynN++, dynT > (menu ? 400 : 1000))) {
+  if (dtr < 1e3 && (dynT += dtr) > 0 && (dynN++, dynT > (menu ? 400 : 1000))) {
     const a = dynT / dynN, g = dynGN ? dynG / dynGN : 0; let k = 1;
     // measured GPU time says exactly how much room there is: keep it between 9.8 and 13.6 ms
     if (g) { if (g > 13.6 || g < 9.8) k = 11.7 / g; }
@@ -473,8 +495,15 @@ function frame(now) {
     else if (a > 17.6) { dynOk = 0; if (++dynBad > 1) { k = 15 / a; dynBad = 0; dynWait = min(dynWait * 2, 60); } }
     // Well above 60 fps (fast displays): more pixels. At the display's rate there is no telling, so try a few more.
     else { dynBad = 0; if (a < 12.5) k = 15 / a; else if (++dynOk > dynWait) { k = 1.17; dynOk = 0; } }
-    k = pix * (k < 0.5 ? 0.5 : k > 1.7 ? 1.7 : k); const top = min(PIXMAX, DW * DH);
-    pix = k < PIXMIN ? PIXMIN : k > top ? top : k; dynN = dynT = dynG = dynGN = 0; resize();
+    k = k < 0.5 ? 0.5 : k > 1.7 ? 1.7 : k; const top = min(PIXMAX, DW * DH), mid = max(top / 2, PIXMIN), was = pix + det;
+    // Too slow: first the pixels go, down to half of what the screen takes, then the draw distance, then the rest
+    // of the pixels. Getting faster takes the same steps back. (What is in view grows with the distance squared.)
+    if (k < 1 ? pix > mid || det <= DETMIN : pix < mid || det >= 1) {
+      const end = k < 1 ? (det > DETMIN ? mid : PIXMIN) : det < 1 ? mid : top;
+      pix *= k; if (k < 1 ? pix < end : pix > end) pix = end;
+    } else { det *= sqrt(k); det = det < DETMIN ? DETMIN : det > 1 ? 1 : det; }
+    if (was !== pix + det) keep('abyssal', [LV, pix < top ? pix | 0 : '', det]); // nothing kept at full resolution
+    dynN = dynT = dynG = dynGN = 0; resize();
   }
   F[TIME] += dt;
   {
@@ -542,6 +571,7 @@ for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) canvas.a
 let menu = true;
 const bDive = $('d');
 const ui = (m) => {
+  if (dead) return;
   menu = m; body.className = m ? 'm' : document.pointerLockElement ? 'g p' : 'g';
   // Enter starts the dive: focus the button (a moment later, it can't take focus in the instant it turns visible)
   if (m) { release(); setTimeout(() => menu && bDive.focus(), 100); } else document.activeElement.blur();
@@ -553,11 +583,14 @@ const go = () => {
   if (!mob) capture();
 };
 bDive.onclick = go; $('o').onclick = () => ui(true);
+// detail buttons (Low, Medium, High): the current quality level (quality.js) is lit, the others reload the page with theirs
+$('q').querySelectorAll('button').forEach((b, i) => { if (i === 2 - LV) b.className = 'on'; else b.onclick = () => { keep('abyssal', 2 - i); location.reload(); }; });
 document.addEventListener('pointerlockchange', () => ui(!document.pointerLockElement));
 
 // draw the first frame and wait for the GPU to finish it (pipelines get compiled on first use) before the reveal
 lookAt(...POSES[0]);
 await say('Letting the light in…', 1, 400);
 render(); await Q.onSubmittedWorkDone();
+setTimeout(keep, 15e3, 'abyssalLoad', ''); // the load counts as survived after 15 s of frames
 ui(true);
 requestAnimationFrame((t) => { F[LAST] = t; requestAnimationFrame(frame); });
