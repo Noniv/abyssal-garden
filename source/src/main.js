@@ -163,12 +163,13 @@ let D;
   await br.mapAsync(GPUMapMode.READ);
   D = new Float32Array(br.getMappedRange().slice(0));
   br.unmap(); br.destroy(); bd.destroy();
-  // flood the rock up from the bottom layer: what it never reaches is a speck of noise floating in the water
-  // (surface nets would make it a small box), so it becomes water
-  const S = NX * NY, R = new Uint8Array(D.length), O = [1, -1, NX, -NX, S, -S]; let f = [];
-  for (let i = 0; i < D.length; i += S) for (let x = i; x < i + NX; x++) if (D[x] > 0) R[x] = 1, f.push(x);
-  while (f.length) { const g = []; for (const i of f) for (const o of O) if (!R[i + o] && D[i + o] > 0) R[i + o] = 1, g.push(i + o); f = g; }
-  for (let i = 0; i < D.length; i++) if (!R[i] && D[i] > 0) D[i] = -D[i];
+  // rock connected to the seabed: each column's unbroken run up from the bottom is, and the rock above a gap
+  // (overhangs, specks) is when it touches rock that is. What never connects is a speck of noise floating in
+  // the water (surface nets would make it a small box), so it becomes water
+  const S = NX * NY, R = new Uint8Array(D.length), O = [1, -1, NX, -NX, S, -S], b = new Uint8Array(NX), L = [];
+  for (let i = 0; i < D.length;) { b.fill(1); for (let y = 0; y < NY; y++) for (let x = 0; x < NX; x++, i++) if (D[i] <= 0) b[x] = 0; else if (b[x]) R[i] = 1; else L.push(i); }
+  for (let k = 1; k; L.reverse()) { k = 0; for (const i of L) if (!R[i] && O.some((o) => R[i + o])) R[i] = k = 1; }
+  for (const i of L) if (!R[i]) D[i] = -D[i];
 }
 // Distance to the rock for collide(), in 1/127 m (> 0 in rock, clamped to ±1 m), kept only in the 4x4x4-voxel
 // bricks near the surface within the camera's reach (~2 MB). CI per brick: 0 all water, 1 all rock, n brick n-2 in CG.
