@@ -1,13 +1,10 @@
 // ============================================================================
 // quality level, chosen before anything is built
 // ============================================================================
-// 0 High is the full scene. 1 Medium and 2 Low are the same world with every 2nd / 4th leaf, glint and pebble, and a
-// smaller shadow map that only the terrain, the set pieces and the kelp are baked into. Low also goes without
-// anti-aliasing and uses coarser rocks and corals, cheaper texture and shadow filtering, a smaller water texture
-// and fewer steps through the light shafts.
-// A first visit picks from cheap hints: phones get Low (Medium with 8 GB of memory), computers with 4 GB or less Low.
-// localStorage.abyssal keeps "level,pixels,detail" for the next visit. abyssalLoad is set while a world is being
-// built: if it is still set on the next visit, that load crashed the tab, and this one runs a level lower.
+// LV: 0 High, 1 Medium, 2 Low. Medium and Low keep every 2nd / 4th leaf, glint and pebble and bake fewer shadows;
+// Low also drops anti-aliasing and uses coarser meshes, cheaper filtering and fewer light shaft steps.
+// localStorage.abyssal = "level,pixels,detail". abyssalLoad is set while the world is built: still set on the next
+// visit means that load crashed the tab, so this one runs a level lower.
 const mob = matchMedia('(pointer:coarse)').matches, mem = navigator.deviceMemory;
 const keep = (k, v) => { try { localStorage[k] = v; } catch {} };
 let SV = [], LV, bad;

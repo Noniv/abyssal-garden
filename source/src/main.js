@@ -5,27 +5,25 @@ const $ = (id) => document.getElementById(id);
 const canvas = $('c'), info = $('i'), body = document.body;
 // a phone held upright gets the page turned on its side (see template.html)
 const rot = matchMedia('(orientation:portrait) and (pointer:coarse)');
-// Loading bar. Each stage names the share of the work that is done when it ends and roughly how long it takes. The
-// bar starts from what is really done and glides to that mark on the compositor, so it keeps moving while this
-// thread is busy; a slow stage leaves it waiting at the mark.
-let loaded = 0, dead; // dead: the graphics device was lost (see below)
+// loading bar: each stage glides it to `to` (the share done) over ~`ms` on the compositor, so it moves while this
+// thread is busy
+let loaded = 0, dead; // dead: the graphics device was lost
 const say = (m, to, ms) => {
   if (!dead) $('s').textContent = m;
   const a = $('b').animate({ transform: [`scaleX(${loaded})`, `scaleX(${to})`] }, { duration: ms, fill: 'forwards', easing: 'cubic-bezier(.3,.5,.5,1)' });
   loaded = to;
-  // Go on when the bar is really moving. On a phone that can take a few frames, and an animation that has not
-  // started by the time this thread gets busy stays stuck at an earlier mark. (The timer covers hidden tabs.)
+  // go on once the animation runs: one not started before the thread gets busy stays stuck (timer: hidden tabs)
   return new Promise((r) => { a.ready.then(() => setTimeout(r)); setTimeout(r, document.hidden ? 0 : 1e3); });
 };
 const fail = (m) => { throw new Error(m, { cause: 1 }); }; // cause marks a message that is shown as it is
 if (!navigator.gpu) fail('This scene needs WebGPU. Try a current Chrome or Edge.');
 const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
 if (!adapter) fail('No WebGPU adapter found.');
+$('w').hidden = !!navigator.userAgentData; // only Chromium-based browsers have it
 const hasTS = adapter.features.has('timestamp-query');
 const device = await adapter.requestDevice({ requiredFeatures: hasTS ? ['timestamp-query'] : [] });
 device.addEventListener('uncapturederror', (e) => console.error('GPU: ' + e.error.message));
-// The driver gave up (out of memory, or one job took too long) and the scene would stay black: start again a level
-// lower, or on Low say what happened.
+// out of memory or a GPU timeout: reload a level lower, or on Low say what happened
 device.lost.then((l) => {
   if (l.reason === 'destroyed') return; // the page is closing
   if (LV < 2) { keep('abyssal', LV + 1); location.reload(); }
@@ -166,11 +164,8 @@ let D;
   D = new Float32Array(br.getMappedRange().slice(0));
   br.unmap(); br.destroy(); bd.destroy();
 }
-// Terrain collision (collide() below) needs the distance to the rock: d / |grad d| of the density grid, in metres
-// (> 0 in rock). It is clamped to ±1 m and kept in bytes (1/127 m), at full resolution but only in the 4x4x4-voxel
-// bricks near the surface and within the camera's reach: about 2 MB instead of the 80 MB grid. The brick index CI
-// holds 0 for all water, 1 for all rock, or n for brick n-2 in CG. The box: voxels CO to CO+4*CN-1 in x and z, and
-// all of y but the bottom and top bricks (below -53 m and above +1 m: the camera stays between -52 and -1.2).
+// Distance to the rock for collide(), in 1/127 m (> 0 in rock, clamped to ±1 m), kept only in the 4x4x4-voxel
+// bricks near the surface within the camera's reach (~2 MB). CI per brick: 0 all water, 1 all rock, n brick n-2 in CG.
 const CO = 52, CN = 102, CI = new Uint16Array(CN * CN * NY / 4);
 let CG = new Int8Array(64 * 65534);
 {
@@ -200,8 +195,7 @@ const POSES = [
   [10, 1.2, -62, 6, -22, -90],
   [3, 1.6, 62, 1, -28, 100],
 ];
-// Camera path through the whole world: position + look-at control points, Catmull-Rom, arc-length parametrised,
-// 60 s. The world generator keeps it clear of kelp and rocks, and the dev build (dev.js) flies along it.
+// 60 s camera path (position + look-at, Catmull-Rom): the world generator keeps it clear, dev.js flies along it
 const FLY = new Float32Array([
   10, -42.2, 7, -9, -31, -10,
   7.5, -41.8, 5.5, -10, -31, -12,
@@ -315,8 +309,7 @@ Q.writeTexture({ texture: tMap }, Wd.gm, { bytesPerRow: 2048 }, [512, 512]);
   r.drawIndexed(T.ib.length, 1, 0, 0, nSolid);
   r.setPipeline(pSolidSh); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32');
   for (let i = 0; i < 12; i++) { const g = Wd.solids.ranges[i]; if (g[1]) r.drawIndexed(meshes[i].ib.length, g[1], meshes[i].i0, meshes[i].v0, g[0]); }
-  // The small rocks, sponges and corals are most of this pass, about 35 million triangles: too much for a weak GPU
-  // in one go (a phone's driver gives up), so only High bakes their shadows.
+  // small rocks, sponges and corals (~35M triangles) only on High: too much for a phone's driver
   if (!LV) for (let i = 0; i < NCHUNK; i++) { r.setVertexBuffer(1, ibChunk[i]); r.drawIndexed(meshes[14 + i].ib.length, Wd.chunks[i].n, meshes[14 + i].i0, meshes[14 + i].v0, 0); }
   if (!LV) for (let i = 0; i < 6; i++) if (Wd.props[i].n) { r.setVertexBuffer(1, ibProp[i]); r.drawIndexed(meshes[4 + i].ib.length, Wd.props[i].n, meshes[4 + i].i0, meshes[4 + i].v0, 0); }
   r.setPipeline(pLeafSh); r.setVertexBuffer(0, ibBig); r.draw(6, Wd.big.n);
@@ -328,11 +321,8 @@ for (const o of [Wd.big, Wd.bigF, Wd.small, ...Wd.chunks, ...Wd.props]) o.buf = 
 Wd.glints = Wd.volD = Wd.gm = T.vb = T.ib = T.wp = T.wn = 0;
 
 // ---------------------------------------------------------------- render targets (rebuilt on resize)
-// The scene is drawn with a budget of `pix` pixels and the browser scales the canvas up to the window. The frame
-// loop moves the budget to hold 60 fps: it starts at 1440p (720p on phones, 480p on Low) and never goes above 1440p.
-// Most of a frame is geometry, which fewer pixels don't speed up, so the budget stops at about 540p (375p on
-// phones) and the loop also scales the draw distances by `det`, between 1 and DETMIN. Both start where the last
-// visit left them.
+// The scene is drawn at `pix` pixels and scaled up to the window. frame() tunes it and the draw distance scale `det`
+// for 60 fps; both start where the last visit left them.
 const PIXMAX = 2560 * 1440, PIXMIN = mob ? 25e4 : 5e5, DETMIN = 0.4;
 let W = 0, H = 0, DW = 0, DH = 0, pix = +SV[1] || (LV > 1 ? 41e4 : mob ? 1280 * 720 : PIXMAX), det = +SV[2] || 1, dynN = 0, dynT = 0, dynG = 0, dynGN = 0, dynBad = 0, dynOk = 0, dynWait = 3;
 let passScene, passRays, passBlur, bgBlur, passPost, bgRays, bgPost, bloomPass = [], bloomBG = [], targets = [];
@@ -396,9 +386,8 @@ let kf = 0, kb = 0, kl = 0, kr = 0, ku = 0, kd = 0, ks = 0, mdx = 0, mdy = 0, lk
 const TANH = 0.6, NEAR = 0.1, EXPO = 0.62, RAYS = 0.54;
 const submitList = [null];
 const rowOrd = new Uint8Array(CELLS);
-// Draws the visible cells of a cell-sorted buffer as merged runs, nearest rows first (helps early-z).
-// A cell is drawn if it intersects the view frustum and its horizontal distance lies in [minD, maxD); for everything
-// but the terrain these distances are scaled by `det`.
+// Draws the cells of a cell-sorted buffer that are in view and within [minD, maxD) (scaled by `det`, but not for the
+// terrain) as merged runs, nearest rows first.
 function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
   const cx = F[CX], cy = F[CY], cz = F[CZ], fx = F[FX], fy = F[FY], fz = F[FZ], rx = F[RX], rz = F[RZ], ux = F[UX], uy = F[UY], uz = F[UZ];
   const ds = indexed === 1 ? 1 : det * det;
@@ -502,9 +491,8 @@ function render() {
   if (slot) { slot.busy = true; slot.b.mapAsync(GPUMapMode.READ).then(slot.done); }
 }
 
-// CS[j] = distance to the rock (metres, < 0 in water) at the camera moved by CE[3j..3j+2]: the camera itself, then
-// 0.375 m either side along x, y and z for the gradient. (No float crosses a call, so the frame loop allocates nothing.)
-// The camera never leaves the box, so there is no clamping.
+// CS[j] = distance to the rock (metres, < 0 in water) at the camera + CE[3j..3j+2]: the camera, then ±0.375 m on
+// each axis for the gradient
 const CE = new Float64Array([0, 0, 0, .375, 0, 0, -.375, 0, 0, 0, .375, 0, 0, -.375, 0, 0, 0, .375, 0, 0, -.375]), CS = new Float64Array(7);
 const cv = (x, y, z) => { const b = CI[(x >> 2) + CN * ((y >> 2) + NY / 4 * (z >> 2))]; return b > 1 ? CG[b * 64 - 128 + (x & 3) + 4 * (y & 3) + 16 * (z & 3)] : b * 254 - 127; };
 function sd(j) {
@@ -513,10 +501,8 @@ function sd(j) {
   const p = a + (cv(ix + 1, iy, iz) - a) * u, q = b + (cv(ix + 1, iy + 1, iz) - b) * u, r = c + (cv(ix + 1, iy, iz + 1) - c) * u, s = d + (cv(ix + 1, iy + 1, iz + 1) - d) * u;
   const e = p + (q - p) * v; CS[j] = (e + (r + (s - r) * v - e) * (z - iz)) / 127;
 }
-// Moves the camera by F[MX..MZ] in steps shorter than its radius CR, so it never gets deep enough into thin rock to
-// come out on the far side, and after each step pushes it back out to CR. Velocity into the rock is dropped, so the
-// camera slides along without sticking. Deep inside rock (only after a jump there) the field is flat and the camera
-// moves freely until it nears the surface, where it is pushed out.
+// Moves the camera by F[MX..MZ] in steps shorter than its radius CR (so it can't pass through thin rock), pushing it
+// back out after each step and dropping velocity into the rock, so it slides along.
 const CR = 0.5;
 function collide() {
   const n = floor(sqrt(F[MX] * F[MX] + F[MY] * F[MY] + F[MZ] * F[MZ]) / 0.4) + 1;
@@ -538,20 +524,17 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dtr = now - F[LAST]; F[LAST] = now;
   let dt = dtr / 1000; if (dt > 0.1) dt = 0.1;
-  // Dynamic resolution, aiming for 60 fps. Every second (0.4 s behind the menu, so it has settled before the dive)
-  // the pixel budget is scaled by k so the frame lands inside the 60 fps budget with some room to spare.
+  // Dynamic resolution for 60 fps: every second (0.4 s behind the menu) scale the load by k
   if (dtr < 1e3 && (dynT += dtr) > 0 && (dynN++, dynT > (menu ? 400 : 1000))) {
     const a = dynT / dynN, g = dynGN ? dynG / dynGN : 0; let k = 1;
-    // measured GPU time says exactly how much room there is: keep it between 9.8 and 13.6 ms
+    // with GPU timing: keep it between 9.8 and 13.6 ms
     if (g) { if (g > 13.6 || g < 9.8) k = 11.7 / g; }
-    // otherwise only frame time is known. Dropping frames for two periods in a row: fewer pixels, and wait twice
-    // as long before the next attempt to go back up.
+    // without: slow for two periods in a row means fewer pixels, and twice as long before trying to go back up
     else if (a > 17.6) { dynOk = 0; if (++dynBad > 1) { k = 15 / a; dynBad = 0; dynWait = min(dynWait * 2, 60); } }
-    // Well above 60 fps (fast displays): more pixels. At the display's rate there is no telling, so try a few more.
+    // at the display's rate there is no telling if there is room, so try a little more now and then
     else { dynBad = 0; if (a < 12.5) k = 15 / a; else if (++dynOk > dynWait) { k = 1.17; dynOk = 0; } }
     k = k < 0.5 ? 0.5 : k > 1.7 ? 1.7 : k; const top = min(PIXMAX, DW * DH), mid = max(top / 2, PIXMIN), was = pix + det;
-    // Too slow: first the pixels go, down to half of what the screen takes, then the draw distance, then the rest
-    // of the pixels. Getting faster takes the same steps back. (What is in view grows with the distance squared.)
+    // too slow: pixels down to `mid` first, then draw distance, then the remaining pixels; faster goes back the same way
     if (k < 1 ? pix > mid || det <= DETMIN : pix < mid || det >= 1) {
       const end = k < 1 ? (det > DETMIN ? mid : PIXMIN) : det < 1 ? mid : top;
       pix *= k; if (k < 1 ? pix < end : pix > end) pix = end;
@@ -561,18 +544,18 @@ function frame(now) {
   }
   F[TIME] += dt;
   {
-    // touch: offset from the first touch point steers like a joystick
+    // touch: holding the finger away from where it went down keeps turning, like a joystick
     if (tId >= 0) {
       const tr = 4 / (innerWidth < innerHeight ? innerWidth : innerHeight); let jx = (tx - tx0) * tr, jy = (ty - ty0) * tr;
       jx = jx > 1 ? 1 : jx < -1 ? -1 : jx; jy = jy > 1 ? 1 : jy < -1 ? -1 : jy;
-      lkx += jx * abs(jx) * 1.7 * dt; lky += jy * abs(jy) * 1.2 * dt;
+      lkx += jx * 1.5 * dt; lky += jy * dt;
     }
     // mouse look through two cascaded low-pass stages
     const kq = 1 - exp(-dt * 30); lkx += mdx * 0.0022; lky += mdy * 0.0022; mdx = 0; mdy = 0;
     const ax = lkx * kq, ay = lky * kq; lkx -= ax; lky -= ay; l2x += ax; l2y += ay;
     const dyw = l2x * kq, dpt = l2y * kq; l2x -= dyw; l2y -= dpt;
     const yaw = F[YAW] + dyw; let pitch = F[PIT] - dpt; pitch = pitch < -1.55 ? -1.55 : pitch > 1.55 ? 1.55 : pitch;
-    const sp = ks || tN > 1 ? 26 : 7, k = 1 - exp(-dt * 4.5), mf = tId >= 0 ? 1 : kf - kb, mr = kr - kl, mu = ku - kd, cp = cos(pitch), sy = sin(yaw), cw = cos(yaw);
+    const sp = ks || tN > 1 ? 26 : 7, k = 1 - exp(-dt * 4.5), mf = tId >= 0 ? 0.7 : kf - kb, mr = kr - kl, mu = ku - kd, cp = cos(pitch), sy = sin(yaw), cw = cos(yaw);
     const vx = F[VX] + ((sy * cp * mf + cw * mr) * sp - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * sp - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * sp - F[VZ]) * k;
     let x = F[CX] + vx * dt, y = F[CY] + vy * dt, z = F[CZ] + vz * dt;
     const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
@@ -615,8 +598,9 @@ const touch = (e) => {
   if (!f) { tId = -1; if (tN) { f = e.touches[0]; tId = f.identifier; first = true; } }
   if (f) {
     // the touch axes turn with the page when it lies on its side
-    if (rot.matches) { tx = f.clientY; ty = -f.clientX; } else { tx = f.clientX; ty = f.clientY; }
-    if (first) { tx0 = tx; ty0 = ty; }
+    const x = rot.matches ? f.clientY : f.clientX, y = rot.matches ? -f.clientX : f.clientY, s = 1100 / min(innerWidth, innerHeight);
+    if (first) { tx0 = x; ty0 = y; } else { mdx += (x - tx) * s; mdy += (y - ty) * s; } // the view follows the finger at once
+    tx = x; ty = y;
   }
 };
 for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) canvas.addEventListener(n, touch, { passive: false });
@@ -628,7 +612,7 @@ const bDive = $('d');
 const ui = (m) => {
   if (dead) return;
   menu = m; body.className = m ? 'm' : document.pointerLockElement ? 'g p' : 'g';
-  // Enter starts the dive: focus the button (a moment later, it can't take focus in the instant it turns visible)
+  // focus the dive button so Enter works (delayed: it can't take focus while still hidden)
   if (m) { release(); setTimeout(() => menu && bDive.focus(), 100); } else document.activeElement.blur();
 };
 const go = () => {
@@ -638,7 +622,7 @@ const go = () => {
   if (!mob) capture();
 };
 bDive.onclick = go; $('o').onclick = () => ui(true);
-// detail buttons (Low, Medium, High): the current quality level (quality.js) is lit, the others reload the page with theirs
+// detail buttons: the current level is lit, the others reload the page with theirs
 $('q').querySelectorAll('button').forEach((b, i) => { if (i === 2 - LV) b.className = 'on'; else b.onclick = () => { keep('abyssal', 2 - i); location.reload(); }; });
 document.addEventListener('pointerlockchange', () => ui(!document.pointerLockElement));
 

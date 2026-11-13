@@ -28,8 +28,7 @@ canvas {
 body:not(.g) canvas { filter: blur(1vmax) brightness(.5); transform: scale(1.06); }
 .l canvas { opacity: 0; }
 
-/* menu: title, then one column with the loading bar and the buttons stacked in the same spot, so nothing jumps
-   when they swap. The gaps shrink on a short screen. */
+/* menu: the loading bar and the buttons share one grid cell, so nothing jumps when they swap */
 #m {
   position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: min(2.2em, 6vmin);
   padding: 1em 1em 4.5em; text-align: center; background: radial-gradient(#03131c00 30%, #03131ccc);
@@ -44,7 +43,8 @@ h1 {
 p { margin: 0; }
 #a { display: grid; width: 27em; max-width: 100%; }
 #a > * { grid-area: 1/1; transition: opacity .8s, visibility .8s; }
-#s, #q, #k, #h { font-size: .8em; letter-spacing: .12em; text-transform: uppercase; }
+#s, #w, #q, #k, #h { font-size: .8em; letter-spacing: .12em; text-transform: uppercase; }
+#w { margin-top: 1.2em; color: #7ff3ff; text-wrap: balance; }
 
 /* loading bar */
 #p {
@@ -58,7 +58,7 @@ p { margin: 0; }
 .e #p { visibility: hidden; }
 .e #s { font-size: 1.1em; letter-spacing: 0; text-transform: none; }
 
-/* buttons: solid, with a darker lower edge; they lift on hover and sink when pressed */
+/* buttons */
 button, a {
   display: flex; align-items: center; justify-content: center; gap: .6em; padding: .8em 1.4em; border: 0;
   border-radius: .5em; background: #fff; box-shadow: inset 0 -.2em #0003, 0 .3em 1em #0009;
@@ -124,7 +124,7 @@ svg { width: 1.5em; height: 1.5em; fill: currentColor; }
 <div id=m>
   <h1>Abyssal Garden</h1>
   <div id=a>
-    <div id=l><div id=p><i id=b></i></div><p id=s>Diving…</p></div>
+    <div id=l><div id=p><i id=b></i></div><p id=s>Diving…</p><p id=w hidden>Use Google Chrome for optimal performance</p></div>
     <div id=g>
       <button id=d>Dive in</button>
       <p id=q><span>Detail</span><button>Low</button><button>Medium</button><button>High</button></p>

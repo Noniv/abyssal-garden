@@ -49,10 +49,6 @@ const qFromY = (nx, ny, nz) => {
   if (ny < -0.9999) return [1, 0, 0, 0];
   const q = [nz, 0, -nx, 1 + ny]; const l = hypot(...q); return q.map((v) => v / l);
 };
-const qRot = (q, x, y, z) => {
-  const cx = q[1] * z - q[2] * y + q[3] * x, cy = q[2] * x - q[0] * z + q[3] * y, cz = q[0] * y - q[1] * x + q[3] * z;
-  return [x + 2 * (q[1] * cz - q[2] * cy), y + 2 * (q[2] * cx - q[0] * cz), z + 2 * (q[0] * cy - q[1] * cx)];
-};
 
 // world grid
 const NX = 512, NY = 80, NZ = 512, VS = 0.75, OX = -192, OY = -56, OZ = -192;

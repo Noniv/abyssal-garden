@@ -1,10 +1,8 @@
 // ============================================================================
 // audio: procedural underwater ambience (no sample files)
 // ============================================================================
-// A fixed graph of Web Audio nodes, built on the first click / key / touch. Bubbles, chimes and whale calls reuse
-// pooled oscillators scheduled by a 10 Hz timer, so the frame loop never touches audio.
-// Layers: rumble, surface wash (louder near the surface), water rush (follows camera speed), drone, bubbles,
-// chimes and rare distant whale calls.
+// A fixed Web Audio graph, built on the first click / key / touch and driven by a 10 Hz timer, not the frame loop.
+// Layers: rumble, surface wash, water rush (follows camera speed), drone, bubbles, chimes and distant whale calls.
 let AC, OUT, muted = false;
 const VOL = 0.78; // master level: about -18.5 LUFS, peaks near -5.5 dBFS
 function mkSound(ac) {
