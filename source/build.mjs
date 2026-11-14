@@ -3,6 +3,7 @@
 //   npm run build:readable   unminified, for debugging
 //   npm run build:dev        ../dev.html: unminified, plus the development tools in src/dev.js
 import { readFileSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,3 +34,13 @@ if (readable) {
 writeFileSync(path.join(here, '..', out), html);
 const gz = gzipSync(Buffer.from(html), { level: 9 }).length;
 console.log(`${out}: ${(html.length / 1024).toFixed(1)} kB${readable ? ' (readable)' : ''}, ${(gz / 1024).toFixed(1)} kB gzipped`);
+
+if (process.argv.includes('--serve')) {
+  const port = Number(process.env.PORT) || 8080;
+  createServer((req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.end(readFileSync(path.join(here, '..', out)));
+  }).listen(port, '127.0.0.1', () => {
+    console.log(`Serving ${out} at http://localhost:${port} (ready for WebXR / SteamVR)`);
+  });
+}
