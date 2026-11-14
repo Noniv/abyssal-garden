@@ -17,7 +17,8 @@ const say = (m, to, ms) => {
 };
 const fail = (m) => { throw new Error(m, { cause: 1 }); }; // cause marks a message that is shown as it is
 if (!navigator.gpu) fail('This scene needs WebGPU. Try a current Chrome or Edge.');
-const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance', xrCompatible: true }).catch(() => null)
+  || await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
 if (!adapter) fail('No WebGPU adapter found.');
 $('w').hidden = !!navigator.userAgentData; // only Chromium-based browsers have it
 const hasTS = adapter.features.has('timestamp-query');
@@ -234,14 +235,16 @@ const FLYN = FLY.length / 6, FLYT = 60, LUTN = 1024, flyLUT = new Float32Array(L
 const flyPts = [];
 // per-frame float state lives in one preallocated array, so the frame loop allocates no heap numbers
 const F = new Float64Array(32), P6 = new Float64Array(6);
-const CX = 0, CY = 1, CZ = 2, YAW = 3, PIT = 4, FX = 5, FY = 6, FZ = 7, RX = 8, RZ = 9, UX = 10, UY = 11, UZ = 12, VX = 13, VY = 14, VZ = 15, TIME = 16, FLT = 17, LAST = 18, GPU = 19, HUDT = 20, SPL = 21, MX = 22, MY = 23, MZ = 24;
+const CX = 0, CY = 1, CZ = 2, YAW = 3, PIT = 4, FX = 5, FY = 6, FZ = 7, RX = 8, RZ = 9, UX = 10, UY = 11, UZ = 12, VX = 13, VY = 14, VZ = 15, TIME = 16, FLT = 17, LAST = 18, GPU = 19, HUDT = 20, SPL = 21, MX = 22, MY = 23, MZ = 24, RY = 25, TX = 26, TY = 27;
+let vrSession = null, vrRefSpace = null, vrGl = null, vrLayer = null, vrTex = null, vrFbo = null;
+let vrCenter = true, vrX0 = 0, vrY0 = 0, vrZ0 = 0, vrPoseIdx = 0, vrBtnA = false, vrBtnB = false, vrW = 0, vrH = 0;
 // aim the camera from P6 = position + look-at point
 function aim() {
   const dx = P6[3] - P6[0], dy = P6[4] - P6[1], dz = P6[5] - P6[2];
   F[CX] = P6[0]; F[CY] = P6[1]; F[CZ] = P6[2];
   F[YAW] = atan2(dx, -dz); F[PIT] = atan2(dy, sqrt(dx * dx + dz * dz));
 }
-const lookAt = (x, y, z, tx, ty, tz) => { P6[0] = x; P6[1] = y; P6[2] = z; P6[3] = tx; P6[4] = ty; P6[5] = tz; aim(); };
+const lookAt = (x, y, z, tx, ty, tz) => { P6[0] = x; P6[1] = y; P6[2] = z; P6[3] = tx; P6[4] = ty; P6[5] = tz; aim(); vrCenter = true; };
 // camera spline (Catmull-Rom over position + look-at) at parameter F[SPL]
 function flyRaw() {
   const s = F[SPL]; let i = floor(s) | 0; if (i > FLYN - 2) i = FLYN - 2;
@@ -335,12 +338,19 @@ let W = 0, H = 0, DW = 0, DH = 0, pix = +SV[1] || (LV > 1 ? 41e4 : mob ? 1280 * 
 let passScene, passRays, passBlur, bgBlur, passPost, bgRays, bgPost, bloomPass = [], bloomBG = [], targets = [];
 const NB = 6;
 function resize() {
-  DW = max(2, round(canvas.clientWidth * devicePixelRatio)); DH = max(2, round(canvas.clientHeight * devicePixelRatio));
-  const s = min(1, sqrt(pix / (DW * DH)));
+  if (vrSession) {
+    if (!vrW || !vrH) return;
+    DW = vrW; DH = vrH;
+  } else {
+    DW = max(2, round(canvas.clientWidth * devicePixelRatio)); DH = max(2, round(canvas.clientHeight * devicePixelRatio));
+  }
+  const budget = vrSession ? (LV > 1 ? 41e4 : 1440 * 1584) : pix;
+  const s = min(1, sqrt(budget / (DW * DH)));
   const w = max(2, round(DW * s) & ~1), h = max(2, round(DH * s) & ~1);
-  if (w === W && h === H) return;
+  const cw = vrSession ? w * 2 : w;
+  if (w === W && h === H && canvas.width === cw) return;
   dynN = dynG = dynGN = 0; dynT = -300; // let the new size settle before measuring again
-  W = w; H = h; canvas.width = W; canvas.height = H;
+  W = w; H = h; canvas.width = cw; canvas.height = H;
   ctx.configure({ device, format: FMT, alphaMode: 'opaque' });
   for (const t of targets) t.destroy();
   const tMS = tex(AA > 1 ? W : 1, H, HDR, TU.RENDER_ATTACHMENT, { samples: AA }), tDp = tex(W, H, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { samples: AA });
@@ -396,9 +406,9 @@ const rowOrd = new Uint8Array(CELLS);
 // Draws the cells of a cell-sorted buffer that are in view and within [minD, maxD) (scaled by `det`, but not for the
 // terrain) as merged runs, nearest rows first.
 function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
-  const cx = F[CX], cy = F[CY], cz = F[CZ], fx = F[FX], fy = F[FY], fz = F[FZ], rx = F[RX], rz = F[RZ], ux = F[UX], uy = F[UY], uz = F[UZ];
+  const cx = F[CX], cy = F[CY], cz = F[CZ], fx = F[FX], fy = F[FY], fz = F[FZ], rx = F[RX], ry = F[RY], rz = F[RZ], ux = F[UX], uy = F[UY], uz = F[UZ];
   const ds = indexed === 1 ? 1 : det * det;
-  const tx = TANH * W / H, hw = CELLW * 0.5, ex = hw + mar, min2 = minD * minD * ds, max2 = maxD * maxD * ds;
+  const tx = F[TX], ty = F[TY], hw = CELLW * 0.5, ex = hw + mar, min2 = minD * minD * ds, max2 = maxD * maxD * ds;
   for (let k = 0; k < CELLS; k++) {
     const rw = rowOrd[k], row = rw * CELLS, pz = OZ + (rw + 0.5) * CELLW - cz, hz = max(abs(pz) - hw, 0);
     let run = -1;
@@ -410,7 +420,7 @@ function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
           const px = OX + (x + 0.5) * CELLW - cx, py = (l + h) * 0.5 - cy, ey = (h - l) * 0.5 + mar, hx = max(abs(px) - hw, 0), h2 = hx * hx + hz * hz;
           if (h2 < max2 && h2 >= min2) {
             const lim = px * fx + py * fy + pz * fz + ex * abs(fx) + ey * abs(fy) + ex * abs(fz);
-            if (lim >= 0 && abs(px * rx + pz * rz) - ex * (abs(rx) + abs(rz)) <= lim * tx) v = abs(px * ux + py * uy + pz * uz) - ex * (abs(ux) + abs(uz)) - ey * abs(uy) <= lim * TANH;
+            if (lim >= 0 && abs(px * rx + py * ry + pz * rz) - ex * (abs(rx) + abs(rz)) - ey * abs(ry) <= lim * tx) v = abs(px * ux + py * uy + pz * uz) - ex * (abs(ux) + abs(uz)) - ey * abs(uy) <= lim * ty;
           }
         }
       }
@@ -422,37 +432,48 @@ function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
     }
   }
 }
-function render() {
-  // camera basis (right vector is horizontal)
-  const cx = F[CX], cy = F[CY], cz = F[CZ], pitch = F[PIT], yaw = F[YAW];
-  const cp = cos(pitch), fy = sin(pitch), rx = cos(yaw), rz = sin(yaw), fx = cp * rz, fz = -cp * rx;
-  const ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
-  F[FX] = fx; F[FY] = fy; F[FZ] = fz; F[RX] = rx; F[RZ] = rz; F[UX] = ux; F[UY] = uy; F[UZ] = uz;
-  const asp = W / H, sx = 1 / (TANH * asp), sy = 1 / TANH, m = UB;
-  m[0] = rx * sx; m[4] = 0; m[8] = rz * sx; m[12] = -(rx * cx + rz * cz) * sx;
-  m[1] = ux * sy; m[5] = uy * sy; m[9] = uz * sy; m[13] = -(ux * cx + uy * cy + uz * cz) * sy;
+let tsSlot = null;
+function renderEye(cx, cy, cz, rx, ry, rz, ux, uy, uz, fx, fy, fz, sx, sy, ox, oy, vpX, clearPost, viewTarget, doWater, doTS) {
+  const svX = F[CX], svY = F[CY], svZ = F[CZ];
+  F[CX] = cx; F[CY] = cy; F[CZ] = cz;
+  F[FX] = fx; F[FY] = fy; F[FZ] = fz; F[RX] = rx; F[RY] = ry; F[RZ] = rz; F[UX] = ux; F[UY] = uy; F[UZ] = uz;
+  F[TX] = (1 + abs(ox)) / sx; F[TY] = (1 + abs(oy)) / sy;
+  const r0x = rx * sx - fx * ox, r0y = ry * sx - fy * ox, r0z = rz * sx - fz * ox;
+  const r1x = ux * sy - fx * oy, r1y = uy * sy - fy * oy, r1z = uz * sy - fz * oy, m = UB;
+  m[0] = r0x; m[4] = r0y; m[8] = r0z; m[12] = -(r0x * cx + r0y * cy + r0z * cz);
+  m[1] = r1x; m[5] = r1y; m[9] = r1z; m[13] = -(r1x * cx + r1y * cy + r1z * cz);
   m[2] = 0; m[6] = 0; m[10] = 0; m[14] = NEAR;
   m[3] = fx; m[7] = fy; m[11] = fz; m[15] = -(fx * cx + fy * cy + fz * cz);
   m[32] = cx; m[33] = cy; m[34] = cz; m[35] = F[TIME];
-  m[36] = rx; m[37] = 0; m[38] = rz; m[39] = TANH * asp;
-  m[40] = ux; m[41] = uy; m[42] = uz; m[43] = TANH;
-  m[44] = fx; m[45] = fy; m[46] = fz; m[47] = NEAR;
+  m[36] = rx; m[37] = ry; m[38] = rz; m[39] = 1 / sx;
+  m[40] = ux; m[41] = uy; m[42] = uz; m[43] = 1 / sy;
+  const cxOff = ox / sx, cyOff = oy / sy;
+  m[44] = fx + rx * cxOff + ux * cyOff;
+  m[45] = fy + ry * cxOff + uy * cyOff;
+  m[46] = fz + rz * cxOff + uz * cyOff;
+  m[47] = NEAR;
   const zx = cx - PURPLE[0], zz = cz - PURPLE[1]; let zt = (44 - sqrt(zx * zx + zz * zz)) / 18; zt = zt < 0 ? 0 : zt > 1 ? 1 : zt;
   m[51] = zt * zt * (3 - 2 * zt);
+  m[52] = W; m[53] = vpX; m[54] = 1 / W; m[55] = 1 / H;
   let ek = (-cy - 8) / 26; ek = ek < 0 ? 0 : ek > 1 ? 1 : ek;
-  m[56] = EXPO * (0.6 + 0.4 * ek); m[57] = RAYS; m[58] = det;
+  m[56] = EXPO * (0.6 + 0.4 * ek); m[57] = RAYS; m[58] = det; m[59] = vrSession ? 0 : 1;
   Q.writeBuffer(ubo, 0, UB);
-  WT[0] = F[TIME]; Q.writeBuffer(uboW, 0, WT);
+  if (doWater) {
+    WT[0] = F[TIME]; Q.writeBuffer(uboW, 0, WT);
+    tsSlot = null;
+    if (hasTS) { for (let i = 0; i < qRead.length; i++) if (!qRead[i].busy) { tsSlot = qRead[i]; break; } }
+  }
 
   { let cr = floor((cz - OZ) / CELLW) | 0; cr = cr < 0 ? 0 : cr > CELLS - 1 ? CELLS - 1 : cr; let n = 0; rowOrd[n++] = cr; for (let d = 1; d < CELLS; d++) { if (cr - d >= 0) rowOrd[n++] = cr - d; if (cr + d < CELLS) rowOrd[n++] = cr + d; } }
   const e = device.createCommandEncoder();
-  let slot = null;
-  if (hasTS) { for (let i = 0; i < qRead.length; i++) if (!qRead[i].busy) { slot = qRead[i]; break; } }
-  waterPass[0].timestampWrites = slot ? tsBegin : undefined;
-  passPost.timestampWrites = slot ? tsEnd : undefined;
+  waterPass[0].timestampWrites = doWater && tsSlot ? tsBegin : undefined;
+  passPost.timestampWrites = doTS && tsSlot ? tsEnd : undefined;
   // animated water texture + mips
-  let r = e.beginRenderPass(waterPass[0]); r.setPipeline(pWater); r.setBindGroup(0, bgWater); r.draw(3); r.end();
-  for (let i = 1; i < 5; i++) { r = e.beginRenderPass(waterPass[i]); r.setPipeline(pMip16); r.setBindGroup(0, waterBG[i - 1]); r.draw(3); r.end(); }
+  let r;
+  if (doWater) {
+    r = e.beginRenderPass(waterPass[0]); r.setPipeline(pWater); r.setBindGroup(0, bgWater); r.draw(3); r.end();
+    for (let i = 1; i < 5; i++) { r = e.beginRenderPass(waterPass[i]); r.setPipeline(pMip16); r.setBindGroup(0, waterBG[i - 1]); r.draw(3); r.end(); }
+  }
   // scene
   r = e.beginRenderPass(passScene);
   r.setBindGroup(0, bg0);
@@ -491,12 +512,22 @@ function render() {
     r = e.beginRenderPass(bloomPass[i]); r.setPipeline(i === 0 ? pDown0 : i < NB ? pDown : pUp); r.setBindGroup(0, bloomBG[i]); r.draw(3); r.end();
   }
   // composite
-  passPost.colorAttachments[0].view = ctx.getCurrentTexture().createView();
-  r = e.beginRenderPass(passPost); r.setPipeline(pPost); r.setBindGroup(0, bgPost); r.draw(3); r.end();
-  if (slot) { e.resolveQuerySet(qs, 0, 2, qResolve, 0); e.copyBufferToBuffer(qResolve, 0, slot.b, 0, 16); }
+  passPost.colorAttachments[0].view = viewTarget;
+  passPost.colorAttachments[0].loadOp = clearPost ? 'clear' : 'load';
+  r = e.beginRenderPass(passPost); r.setViewport(vpX, 0, W, H, 0, 1); r.setPipeline(pPost); r.setBindGroup(0, bgPost); r.draw(3); r.end();
+  if (doTS && tsSlot) { e.resolveQuerySet(qs, 0, 2, qResolve, 0); e.copyBufferToBuffer(qResolve, 0, tsSlot.b, 0, 16); }
   submitList[0] = e.finish();
   Q.submit(submitList);
-  if (slot) { slot.busy = true; slot.b.mapAsync(GPUMapMode.READ).then(slot.done); }
+  if (doTS && tsSlot) { const s = tsSlot; s.busy = true; s.b.mapAsync(GPUMapMode.READ).then(s.done); tsSlot = null; }
+  F[CX] = svX; F[CY] = svY; F[CZ] = svZ;
+}
+function render() {
+  // camera basis (right vector is horizontal)
+  const cx = F[CX], cy = F[CY], cz = F[CZ], pitch = F[PIT], yaw = F[YAW];
+  const cp = cos(pitch), fy = sin(pitch), rx = cos(yaw), rz = sin(yaw), fx = cp * rz, fz = -cp * rx;
+  const ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
+  const asp = W / H, sx = 1 / (TANH * asp), sy = 1 / TANH;
+  renderEye(cx, cy, cz, rx, 0, rz, ux, uy, uz, fx, fy, fz, sx, sy, 0, 0, 0, true, ctx.getCurrentTexture().createView(), true, true);
 }
 
 // CS[j] = distance to the rock (metres, < 0 in water) at the camera + CE[3j..3j+2]: the camera, then ±0.375 m on
@@ -529,6 +560,7 @@ function collide() {
 }
 
 function frame(now) {
+  if (vrSession) return;
   requestAnimationFrame(frame);
   const dtr = now - F[LAST]; F[LAST] = now;
   let dt = dtr / 1000; if (dt > 0.1) dt = 0.1;
@@ -579,6 +611,83 @@ function frame(now) {
   }
 }
 
+function xrFrame(now, xrF) {
+  if (!vrSession) return;
+  vrSession.requestAnimationFrame(xrFrame);
+  const dtr = now - F[LAST]; F[LAST] = now;
+  let dt = dtr / 1000; if (dt <= 0 || dt > 0.1) dt = 0.011;
+  F[TIME] += dt;
+  const pose = xrF.getViewerPose(vrRefSpace);
+  if (!pose) return;
+  const views = pose.views;
+  if (!views.length) return;
+  const vp0 = vrLayer.getViewport(views[0]);
+  if (vp0.width !== vrW || vp0.height !== vrH) { vrW = vp0.width; vrH = vp0.height; resize(); }
+  const hm = pose.transform.matrix;
+  if (vrCenter) {
+    vrX0 = hm[12]; vrY0 = hm[13]; vrZ0 = hm[14];
+    F[YAW] -= atan2(-hm[8], -hm[10]);
+    vrCenter = false;
+  }
+  // Quest / OpenXR controller input + keyboard fallback
+  let vmf = 0, vmr = 0, vmu = 0, vturn = 0, vfast = 0, btnA = false, btnB = false;
+  for (const src of vrSession.inputSources) {
+    const gp = src.gamepad;
+    if (!gp) continue;
+    const ax = gp.axes, bt = gp.buttons;
+    const sx = ax.length > 2 ? ax[2] : ax[0] || 0;
+    const sy = ax.length > 3 ? ax[3] : ax[1] || 0;
+    if (bt[0]?.pressed || bt[1]?.pressed || bt[3]?.pressed) vfast = 1;
+    if (bt[4]?.pressed) btnA = true;
+    if (bt[5]?.pressed) btnB = true;
+    if (src.handedness === 'right') {
+      if (abs(sx) > 0.2) vturn += sx;
+      if (abs(sy) > 0.2) vmu -= sy;
+    } else {
+      if (abs(sx) > 0.15) vmr += sx;
+      if (abs(sy) > 0.15) vmf -= sy;
+    }
+  }
+  if (btnA && !vrBtnA) { vrPoseIdx = (vrPoseIdx + 1) % POSES.length; lookAt(...POSES[vrPoseIdx]); }
+  if (btnB && !vrBtnB) mute();
+  vrBtnA = btnA; vrBtnB = btnB;
+
+  F[YAW] += vturn * 1.8 * dt;
+  const cyw = cos(F[YAW]), syw = sin(F[YAW]);
+  const hfx = -hm[8] * cyw + hm[10] * syw, hfy = -hm[9], hfz = -hm[8] * syw - hm[10] * cyw;
+  const hrx = hm[0] * cyw - hm[2] * syw, hrz = hm[0] * syw + hm[2] * cyw;
+  const sp = ks || vfast ? 26 : 7, k = 1 - exp(-dt * 4.5);
+  const mf = (kf - kb) + vmf, mr = (kr - kl) + vmr, mu = (ku - kd) + vmu;
+  const vx = F[VX] + ((hfx * mf + hrx * mr) * sp - F[VX]) * k;
+  const vy = F[VY] + ((hfy * mf + mu) * sp - F[VY]) * k;
+  const vz = F[VZ] + ((hfz * mf + hrz * mr) * sp - F[VZ]) * k;
+  let x = F[CX] + vx * dt, y = F[CY] + vy * dt, z = F[CZ] + vz * dt;
+  const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
+  y = y < -52 ? -52 : y > -1.2 ? -1.2 : y;
+  F[VX] = vx; F[VY] = vy; F[VZ] = vz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
+  collide();
+
+  const viewTarget = ctx.getCurrentTexture().createView();
+  const nV = min(views.length, 2);
+  for (let i = 0; i < nV; i++) {
+    const em = views[i].transform.matrix, pr = views[i].projectionMatrix;
+    const ex = em[12] - vrX0, ey = em[13] - vrY0, ez = em[14] - vrZ0;
+    const ecx = F[CX] + ex * cyw - ez * syw, ecy = clamp(F[CY] + ey, -52, -1.2), ecz = F[CZ] + ex * syw + ez * cyw;
+    const erx = em[0] * cyw - em[2] * syw, ery = em[1], erz = em[0] * syw + em[2] * cyw;
+    const eux = em[4] * cyw - em[6] * syw, euy = em[5], euz = em[4] * syw + em[6] * cyw;
+    const efx = -em[8] * cyw + em[10] * syw, efy = -em[9], efz = -em[8] * syw - em[10] * cyw;
+    renderEye(ecx, ecy, ecz, erx, ery, erz, eux, euy, euz, efx, efy, efz, pr[0], pr[5], pr[8], pr[9], i * W, i === 0, viewTarget, i === 0, i === nV - 1);
+  }
+  vrGl.bindTexture(vrGl.TEXTURE_2D, vrTex);
+  vrGl.texImage2D(vrGl.TEXTURE_2D, 0, vrGl.RGBA, vrGl.RGBA, vrGl.UNSIGNED_BYTE, canvas);
+  vrGl.bindFramebuffer(vrGl.READ_FRAMEBUFFER, vrFbo);
+  vrGl.bindFramebuffer(vrGl.DRAW_FRAMEBUFFER, vrLayer.framebuffer);
+  for (let i = 0; i < nV; i++) {
+    const vp = vrLayer.getViewport(views[i]);
+    vrGl.blitFramebuffer(i * W, H, (i + 1) * W, 0, vp.x, vp.y, vp.x + vp.width, vp.y + vp.height, vrGl.COLOR_BUFFER_BIT, vrGl.LINEAR);
+  }
+}
+
 // ---------------------------------------------------------------- input
 const key = (e, v) => {
   switch (e.code) {
@@ -587,7 +696,7 @@ const key = (e, v) => {
     default: if (v && !e.repeat) {
       if (e.code === 'KeyH') { hud = !hud; hTot = 0; hPer = 1e9; info.textContent = ''; }
       else if (e.code === 'KeyM') mute();
-      else if (e.code === 'Escape') ui(true);
+      else if (e.code === 'Escape') { if (vrSession) vrSession.end(); else ui(true); }
       else if (e.code >= 'Digit1' && e.code <= 'Digit6') lookAt(...POSES[e.code.charCodeAt(5) - 49]);
     }
   }
@@ -616,7 +725,8 @@ for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) canvas.a
 // ---------------------------------------------------------------- menu
 // The scene keeps rendering (blurred by CSS) behind the menu. Esc, losing the mouse or the corner button open it.
 let menu = true;
-const bDive = $('d');
+const bDive = $('d'), bVR = $('vr'), pVE = $('ve');
+const vrErr = (msg) => { pVE.textContent = msg; pVE.hidden = !msg; };
 const ui = (m) => {
   if (dead) return;
   menu = m; body.className = m ? 'm' : document.pointerLockElement ? 'g p' : 'g';
@@ -624,15 +734,59 @@ const ui = (m) => {
   if (m) { release(); setTimeout(() => menu && bDive.focus(), 100); } else document.activeElement.blur();
 };
 const go = () => {
-  sound(); ui(false); bDive.textContent = 'Resume';
+  sound(); vrErr(''); ui(false); bDive.textContent = 'Resume';
   // phones: go fullscreen and ask for landscape; where that is refused the CSS rotation still applies
   if (mob) document.documentElement.requestFullscreen?.()?.then(() => screen.orientation.lock('landscape')).catch(() => 0);
   if (!mob) capture();
 };
-bDive.onclick = go; $('o').onclick = () => ui(true);
+const goVR = async () => {
+  sound(); vrErr('');
+  if (vrSession) { vrSession.end(); return; }
+  if (!window.isSecureContext) {
+    vrErr('WebXR requires http://localhost or HTTPS. Run "npm start" in the source folder and open http://localhost:8080.');
+    return;
+  }
+  if (!navigator.xr) {
+    vrErr('WebXR is not available in this browser. Use Chrome or Edge on PC with SteamVR.');
+    return;
+  }
+  try {
+    const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+    if (!vrGl) {
+      const gc = document.createElement('canvas');
+      vrGl = gc.getContext('webgl2', { xrCompatible: true, alpha: false, depth: false, stencil: false, antialias: false });
+      if (!vrGl) throw new Error('WebGL2 unavailable for XR layer.');
+      vrTex = vrGl.createTexture();
+      vrGl.bindTexture(vrGl.TEXTURE_2D, vrTex);
+      vrGl.texParameteri(vrGl.TEXTURE_2D, vrGl.TEXTURE_MIN_FILTER, vrGl.LINEAR);
+      vrGl.texParameteri(vrGl.TEXTURE_2D, vrGl.TEXTURE_MAG_FILTER, vrGl.LINEAR);
+      vrGl.texParameteri(vrGl.TEXTURE_2D, vrGl.TEXTURE_WRAP_S, vrGl.CLAMP_TO_EDGE);
+      vrGl.texParameteri(vrGl.TEXTURE_2D, vrGl.TEXTURE_WRAP_T, vrGl.CLAMP_TO_EDGE);
+      vrFbo = vrGl.createFramebuffer();
+      vrGl.bindFramebuffer(vrGl.READ_FRAMEBUFFER, vrFbo);
+      vrGl.framebufferTexture2D(vrGl.READ_FRAMEBUFFER, vrGl.COLOR_ATTACHMENT0, vrGl.TEXTURE_2D, vrTex, 0);
+    }
+    await vrGl.makeXRCompatible?.().catch(() => 0);
+    vrLayer = new XRWebGLLayer(s, vrGl, { alpha: false, depth: false, stencil: false, antialias: false });
+    s.updateRenderState({ baseLayer: vrLayer, depthNear: NEAR, depthFar: 300 });
+    vrRefSpace = await s.requestReferenceSpace('local-floor').catch(() => s.requestReferenceSpace('local'));
+    vrSession = s; vrCenter = true; vrW = vrH = 0;
+    bVR.textContent = 'Exit VR'; ui(false); bDive.textContent = 'Resume';
+    s.addEventListener('end', () => {
+      vrSession = vrRefSpace = vrLayer = null; vrW = vrH = 0;
+      bVR.textContent = 'Enter VR';
+      resize(); ui(true);
+      requestAnimationFrame((t) => { F[LAST] = t; requestAnimationFrame(frame); });
+    });
+    s.requestAnimationFrame((t, f) => { F[LAST] = t; xrFrame(t, f); });
+  } catch (err) {
+    vrErr('Could not start VR: make sure Quest Link / SteamVR is active (' + (err.message || err) + ').');
+  }
+};
+bDive.onclick = go; bVR.onclick = goVR; $('o').onclick = () => { if (vrSession) vrSession.end(); else ui(true); };
 // detail buttons: the current level is lit, the others reload the page with theirs
 $('q').querySelectorAll('button').forEach((b, i) => { if (i === 2 - LV) b.className = 'on'; else b.onclick = () => { keep('abyssal', 2 - i); location.reload(); }; });
-document.addEventListener('pointerlockchange', () => ui(!document.pointerLockElement));
+document.addEventListener('pointerlockchange', () => { if (!vrSession) ui(!document.pointerLockElement); });
 
 // draw the first frame and wait for the GPU to finish it (pipelines get compiled on first use) before the reveal
 lookAt(...POSES[0]);
