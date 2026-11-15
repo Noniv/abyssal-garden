@@ -1,7 +1,7 @@
 // ============================================================================
 // math + procedural helpers (load-time only unless noted)
 // ============================================================================
-const { sin, cos, sqrt, min, max, abs, floor, PI, pow, atan2, hypot, exp, round } = Math;
+const { sin, cos, sqrt, min, max, abs, floor, PI, pow, atan2, hypot, exp, round, sign } = Math;
 const TAU = PI * 2;
 let _seed = 20261110;
 const rnd = () => {
@@ -52,6 +52,8 @@ const qFromY = (nx, ny, nz) => {
 
 // world grid
 const NX = 512, NY = 80, NZ = 512, VS = 0.75, OX = -192, OY = -56, OZ = -192;
+// meshes drawn as culled props: sponges, corals, tube sponge, the two soft corals, the anemone column
+const PROPM = [4, 5, 6, 7, 8, 9, 33, 34, 35];
 const CELLS = 16, CELLW = 24; // culling grid over XZ
 const NCHUNK = 7; // 3 small + 3 large rock chunk meshes + pebbles
 

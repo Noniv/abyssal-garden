@@ -1,2 +1,11 @@
 node_modules/
 dev.html
+
+# bulky render captures (reports in test-probe-steps are kept)
+test-probe-steps/**/*.json
+test-probe-steps/**/*.jpg
+test-probe-steps/**/*.png
+test-probe-steps/**/*.mp4
+.DS_Store
+# benchmark results are small and the reports cite them
+!test-probe-steps/**/bench-*.json

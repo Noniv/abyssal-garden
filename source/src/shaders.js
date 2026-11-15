@@ -191,12 +191,12 @@ const WK = array<vec3f, 10>(vec3f(1., 2., 1.), vec3f(-2., 1., .9), vec3f(3., 1.,
 // ---------------------------------------------------------------- shared scene code
 const S_G = /*wgsl*/`
 struct G { vp: mat4x4f, sm: mat4x4f, cam: vec4f, right: vec4f, up: vec4f, fwd: vec4f, sun: vec4f, res: vec4f, mis: vec4f };
-const SIG = vec3f(.058, .0235, .0195);
-const KD = vec3f(.056, .0245, .0170);
-const WCOL = vec3f(.16, .58, .90);
+const SIG = vec3f(.058, .0296, .0186);
+const KD = vec3f(.056, .0288, .0164);
+const WCOL = vec3f(.085, .43, .96);
 const KDZ = vec3f(.034, .023, .018);
-const PCOL = vec3f(.58, .66, .98);
-const SUNC = vec3f(1.7, 1.6, 1.45);
+const PCOL = vec3f(.44, .40, .96);
+const SUNC = vec3f(1.66, 1.6, 1.56);
 const TAU = 6.2831853;
 const LOW = ${LV > 1};
 fn sat(x: f32) -> f32 { return clamp(x, 0., 1.); }
@@ -209,7 +209,8 @@ fn fin(c: vec3f) -> vec4f { return vec4f(min(max(c, vec3f(0.)), vec3f(40.)), 1.)
 const KDF = vec3f(.043, .045, .042);
 fn fogIn(ro: vec3f, rd: vec3f, d: f32, z: f32, sun: vec3f) -> vec3f {
   let k = mix(KD, KDF, z);
-  let a = sg(z) - k * rd.y;
+  let a0 = sg(z) - k * rd.y;
+  let a = select(a0, vec3f(1e-4), abs(a0) < vec3f(1e-4)); // looking almost straight up a channel can reach 0
   let I = (1. - exp(-a * d)) / a;
   let mu = max(dot(rd, sun), 0.);
   let m2 = mu * mu;
@@ -258,7 +259,7 @@ fn sunE(y: f32, z: f32) -> vec3f { return SUNC * exp(kd(z) * (min(y, 0.) / g.sun
 fn vol(p: vec3f) -> vec4f { return textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 60., 384.), 0.); }
 fn amb(p: vec3f, n: vec3f, sky: f32, z: f32) -> vec3f {
   let up = n.y * .5 + .5;
-  return mix(vec3f(.22, .60, .80), vec3f(.34, .56, .82), z) * exp(kd(z) * min(p.y, 0.) * 1.2) * (.3 + .7 * sky) * (.24 + .76 * up * up) * 1.3 * (.55 + .45 * sat(-p.y / 30.)) + vec3f(.003, .010, .016);
+  return mix(vec3f(.18, .54, .86), vec3f(.34, .56, .82), z) * exp(kd(z) * min(p.y, 0.) * 1.2) * (.3 + .7 * sky) * (.24 + .76 * up * up) * 1.3 * (.55 + .45 * sat(-p.y / 30.)) + vec3f(.012, .034, .058);
 }
 fn zone(p: vec3f) -> f32 { return mix(g.sun.w, textureSampleLevel(tM, sC, p.xz / 384. + .5, 0.).b, .2); }
 fn side(p: vec3f, n: vec3f, open: f32, z: f32) -> vec3f { return mix(WCOL, PCOL, z) * exp(kd(z) * min(p.y, 0.)) * open * (1. - abs(n.y)) * .7; }
@@ -281,6 +282,10 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   if (i.c.x < 1.5 && i.c.z > 1.5 && g.res.x > 0.) { sc *= 1. - ss(i.c.z * .7, i.c.z, distance(i.a.xyz, g.cam.xyz) / g.mis.z); }
   var w = i.a.xyz + qrot(i.b, i.p * sc);
   w.y += sin(g.cam.w * .3 + i.c.y * 40.) * i.c.w;
+  if (abs(i.c.x - 6.) < .5) { // soft coral bends with the current, more toward its tips
+    let h = i.p.y * sc; let ph = dot(i.a.xz, vec2f(.9, .6)) + i.c.y * 6.;
+    w += vec3f(.8, 0., .6) * (sin(g.cam.w * .8 + ph + h * .7) * .07 * h * h) + vec3f(-.6, 0., .8) * (cos(g.cam.w * .63 + ph * 1.3 + h) * .04 * h * h);
+  }
   o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = qrot(i.b, i.n.xyz); o.op = i.p * i.a.w + i.c.y * 37.; o.on = i.n.xyz;
   o.m = i.c; o.q = i.b; o.ao = i.n.w;
   return o;
@@ -351,6 +356,15 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
     if (hue > .75) { alb = vec3f(.44, .18, .42); }
     alb *= (.45 + .75 * B.h) * (.7 + .3 * C.h);
     vao = i.ao * i.ao; gloss = .2; bump = 1.4; flu = .55;
+  } else if (mat == 6) { // soft coral: pastel flesh, paler glowing tips
+    let hue = fract(sd * 9.17);
+    alb = mix(vec3f(.95, .32, .58), vec3f(.6, .34, .95), fract(hue * 3.));
+    if (hue > .66) { alb = vec3f(1., .58, .22); }
+    if (hue > .86) { alb = vec3f(.9, .55, .7); }
+    alb = mix(alb * .45, mix(alb, vec3f(1.), .1), ss(.3, 1., i.ao)) * (.6 + .3 * B.h);
+    emi = alb * .03 * ss(.5, 1., i.ao); flu = .3; gloss = .3; bump = .25;
+  } else if (mat == 7) { // anemone column
+    alb = mix(vec3f(.3, .13, .3), vec3f(.4, .2, .14), fract(sd * 3.9)) * (.5 + .6 * B.h); gloss = .3; bump = .5;
   } else {
     let hue = fract(sd * 5.73);
     alb = mix(vec3f(.80, .08, .10), vec3f(.90, .22, .40), fract(hue * 4.));
@@ -371,6 +385,8 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
   let am = (amb(i.wp, N, v1.g, z) + side(i.wp, N, sat((v2.r - .5) * 2.7), z)) * ao;
   let dl = E * ndl * (.10 + mix(vec3f(.33), ca, ss(.1, .45, dot(n0, L))) * 2.5);
   var c = alb * (dl + am) + emi + alb * flu * dot(dl + am, vec3f(.1, .5, .5));
+  // the diver's lamp: what the camera passes closely keeps its form and its true colours
+  c += alb * vec3f(1., .97, .9) * (.42 / (1. + dist * dist * .07)) * (.25 + .75 * sat(dot(N, V))) * (.4 + .6 * ao);
   let H = normalize(V + L);
   c += E * (.25 + ca) * pow(sat(dot(N, H)), mix(10., 70., gloss)) * gloss * ndl * 1.8;
   c += (amb(i.wp, reflect(-V, N), v1.g, z) + side(i.wp, reflect(-V, N), sat((v2.r - .5) * 2.7), z)) * ao * (.08 + gloss) * .6 * pow(1. - sat(dot(N, V)), 2.5);
@@ -434,7 +450,7 @@ fn pal(h: f32) -> vec3f {
   let shp_ = g.res.x == 0.;
   let cd = distance(i.a.xyz, g.cam.xyz); let far = FAR * g.mis.z;
   let nearK = select(1. - ss(26., 40., cd), 0., shp_);
-  let farK = select((1. - ss(far * .8, far, cd)) * ss(.6, 2.2, distance(c, g.cam.xyz)) * ss(len * 1.1 + .5, len * 2.2 + 1.2, distance(i.a.xyz + d * (len * .5), g.cam.xyz)), 1., shp_);
+  let farK = select((1. - ss(far * .8, far, cd)) * ss(.9, 2.6, length(g.cam.xyz - i.a.xyz - d * clamp(dot(g.cam.xyz - i.a.xyz, d), 0., len))) * ss(len * 1.1 + .5, len * 2.2 + 1.2, distance(i.a.xyz + d * (len * .5), g.cam.xyz)), 1., shp_);
   let ruf = sin(v * 10. + s2 * 30. + t * .6) * i.b.z * .36 * u * shape2(v) * nearK;
   var p = c + S * (u * farK * select(i.b.z * .5 * shape, select(max(i.b.z * .5, .09) * shape, 0., ty == 1), shp_));
   p += N2 * ruf;
@@ -468,7 +484,11 @@ struct GO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) @
 @fragment fn fs(i: LO, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
   let dist = length(i.wp - g.cam.xyz);
   let ca = caus2(i.wp, dist);
+  // which way "across the blade" points in the world, from how the blade coordinate changes over the screen
+  let gu = dpdx(i.wp) * dpdx(i.uv.x) + dpdy(i.wp) * dpdy(i.uv.x);
   var n = normalize(i.n); if (!ff) { n = -n; }
+  // the blade is drawn flat but shaded as if gently curved across its width
+  n = normalize(n + gu / max(length(gu), 1e-9) * (i.uv.x * .55));
   let V = normalize(g.cam.xyz - i.wp); let L = g.sun.xyz;
   let z = zone(i.wp);
   let lt = textureSample(tD, sR, vec2f(i.uv.x * .13 + i.sd.x * 3.7, i.uv.y * .8 + i.sd.y * 5.3));
@@ -482,7 +502,7 @@ struct GO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) @
   let tr = (max(-ndl, 0.) * .85 + .15) * i.pr.y;
   let trc = alb * mix(vec3f(1.), vec3f(1.5, 1.4, .75), sat(i.pr.y) * (1. - i.pr.z));
   let aov = sat((vv.r - .5) * 6.) * mix(.4, 1., i.uv.y);
-  let am = (amb(i.wp, n, vv.g, z) + amb(i.wp, -n, vv.g, z) * i.pr.y * .55 * vec3f(1.1, 1.15, .7) + side(i.wp, n, sat((vv.r - .5) * 4.), z) * .6) * (.3 + .7 * aov);
+  let am = (amb(i.wp, n, vv.g, z) + amb(i.wp, -n, vv.g, z) * i.pr.y * .55 * vec3f(1.1, 1.15, .7) + side(i.wp, n, sat((vv.r - .5) * 4.), z) * .6) * (.46 + .54 * aov);
   var c = E * (.06 + ca * 1.5) * (alb * max(ndl, 0.) + trc * tr) + alb * am;
   let H = normalize(V + L);
   c += E * (pow(sat(dot(n, H)), 40.) * (.45 + ir * i.pr.z * 2.) + pow(sat(dot(n, H)), 9.) * .07) + am * ir * i.pr.z * pow(1. - ndv, 3.) * 1.5;
@@ -497,35 +517,253 @@ struct GO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) @
 }
 `;
 
+// ---------------------------------------------------------------- tentacles (anemones, polyps, sea whips)
+// One ribbon per tentacle, turned to face the camera and shaded as a round tube; no mesh, the strip is built from the
+// vertex index like the leaves. a = root xyz + length, b = axis xyz + radius, c = kind, seed, colour, phase.
+// Kinds: 0 anemone tentacle (b = its rest direction), 1 arm of a polyp that opens and closes (b = the polyp's axis,
+// the seed places the arm around it), 2 sea whip.
+const W_TENT = S_B + /*wgsl*/`
+override ROWS: f32 = 8.;
+struct TI { @location(2) a: vec4f, @location(3) b: vec4f, @location(4) c: vec4f };
+struct TO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) uv: vec2f, @location(2) sd: vec3f, @location(3) @interpolate(flat) m: vec4f, @location(4) lt: f32 };
+fn tpos(a: vec4f, b: vec4f, c: vec4f, v: f32, t: f32) -> vec3f {
+  let d = b.xyz; let e1 = normalize(cross(d, vec3f(.31, .2, .93))); let e2 = cross(d, e1); let s = c.y;
+  // the current comes in waves that travel across the reef
+  let cur = vec3f(.8, 0., .6) * sin(t * .8 + dot(a.xz, vec2f(.9, .6)) + c.w * 6.3);
+  if (c.x < .5) {
+    let out = d - vec3f(0., d.y, 0.); // tentacles lean out, droop under their own weight and curl at the tip
+    return a.xyz + (d * v + out * (.55 * v * v) - vec3f(0., .32 * v * v * v, 0.)
+      + e1 * (sin(v * 3.2 + t * 1.1 + s * 40.) * .2 * v + sin(v * 7. + s * 9.) * .07 * v * v) + e2 * (cos(v * 2.7 + t * .9 + s * 31.) * .2 * v) + cur * (.34 * v * v)) * a.w;
+  }
+  if (c.x < 1.5) { // the arm curls away from the axis by an angle that pulses: an arc in closed form
+    let az = s * TAU; let rad = e1 * cos(az) + e2 * sin(az);
+    let f = .7 + .55 * sin(t * 1.6 + c.w * 6.3);
+    return a.xyz + (d * sin(f * v) + rad * (1. - cos(f * v))) * (a.w / f) + cur * (.05 * v * a.w);
+  }
+  return a.xyz + (d * v + e1 * (sin(v * 4. + s * 20.) * .13 * v) + e2 * (cos(v * 3.1 + s * 33.) * .1 * v) + cur * (.16 * v * v)) * a.w;
+}
+@vertex fn vs(@builtin(vertex_index) vi: u32, i: TI) -> TO {
+  var o: TO;
+  let u = f32(vi & 1u) * 2. - 1.; let v = 1. - pow(1. - f32(vi >> 1u) / (ROWS - 1.), 1.7); let t = g.cam.w; // rows bunch up toward the rounded tip
+  let p = tpos(i.a, i.b, i.c, v, t);
+  let tg = normalize(tpos(i.a, i.b, i.c, v + .04, t) - tpos(i.a, i.b, i.c, v - .04, t));
+  let vd = g.cam.xyz - p; let dist = length(vd);
+  let sd = normalize(cross(tg, vd / dist));
+  // tapering, with a bulb at the tip of anemone tentacles and polyp arms; never thinner than about a pixel
+  var r = i.b.w * (1. - .45 * v);
+  if (i.c.x < 1.5) { let q = (v - .87) / .08; r += i.b.w * .6 * exp(-q * q); }
+  r *= sqrt(max(1. - pow(max(v - .93, 0.) / .07, 2.), 0.));
+  r = max(r, dist * .0007 * step(v, .99));
+  if (g.res.x > 0. && dist > 85. * g.mis.z) { r = 0.; }
+  let w = p + sd * (u * r);
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.uv = vec2f(u, v); o.sd = sd; o.m = i.c; o.lt = shadow1(i.a.xyz + i.b.xyz * .3);
+  return o;
+}
+@fragment fn fs(i: TO) -> @location(0) vec4f {
+  let V = normalize(g.cam.xyz - i.wp); let L = g.sun.xyz; let u = i.uv.x; let v = i.uv.y;
+  let n = normalize(normalize(i.sd) * u + V * sqrt(max(1. - u * u, 0.)));
+  let z = zone(i.wp); let vv = vol(i.wp); let ca = caus2(i.wp, distance(g.cam.xyz, i.wp));
+  let h = i.m.z; let k = i.m.x; let tip = ss(.78, .95, v);
+  var body = vec3f(.85, .2, .6); var tc = vec3f(.3, .95, 1.);
+  if (h > .25) { body = vec3f(.2, .75, .42); tc = vec3f(1., .45, .8); }
+  if (h > .5) { body = vec3f(.9, .72, .46); tc = vec3f(.7, .4, 1.); }
+  if (h > .75) { body = vec3f(.16, .36, .95); tc = vec3f(1., .82, .3); }
+  var alb = mix(body * (.4 + .6 * v), tc, tip); var emi = tc * tip * .22 + body * .03 * v;
+  if (k > 1.5) { // sea whip: warm stem, a row of pale glowing polyps
+    let st = mix(vec3f(.85, .16, .1), vec3f(1., .6, .1), fract(h * 3.));
+    alb = st * (.72 + .28 * sin(v * 170. + u * 2.)) * (.6 + .4 * v); emi = st * .05 * v;
+  } else if (k > .5) { // polyp: pale arms, the pulse shows as a soft glow
+    alb = mix(mix(vec3f(.75, .8, 1.), vec3f(1., .75, .85), fract(h * 2.)), vec3f(1.), tip * .6);
+    emi = alb * (.06 + .1 * tip);
+  }
+  let E = sunE(i.wp.y, z) * i.lt * (.5 + .5 * ca);
+  let ndl = dot(n, L);
+  var c = alb * (E * (.3 + .7 * sat(ndl) + .3 * sat(-ndl)) + amb(i.wp, n, vv.g, z) * 1.25) * (.5 + .5 * sqrt(max(1. - u * u, 0.)));
+  c += E * pow(sat(dot(n, normalize(V + L))), 30.) * .5 + alb * pow(abs(u), 3.) * .25 * vv.g;
+  c += emi * (.8 + .2 * sin(g.cam.w * 1.7 + i.m.y * 50.));
+  return fin(fog(c, i.wp, z));
+}
+`;
+
 // ---------------------------------------------------------------- fish + mantas
 const W_ANIM = S_B + /*wgsl*/`
 struct VI { @location(0) p: vec3f, @location(1) n: vec4f, @location(2) a: vec4f, @location(3) b: vec4f };
 struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) op: vec3f, @location(3) @interpolate(flat) sd: f32, @location(4) lt: f32 };
-@vertex fn vsFish(i: VI) -> VO {
-  var o: VO;
-  let s = i.b.x; let h = vec3f(hs(s), hs(s + .37), hs(s + .71));
-  let R = i.a.w; let t = g.cam.w;
-  let ta = t * i.b.y + i.b.w * 6.3 + (h.x - .5) * (26. / R);
-  let ph = i.b.w * 17.;
-  let P = i.a.xyz + vec3f(R * cos(ta), 2.2 * sin(3. * ta + ph), R * .6 * sin(ta));
-  let T = normalize(vec3f(-R * sin(ta), 6.6 * cos(3. * ta + ph), R * .6 * cos(ta))) * sign(i.b.y);
+// Fish instances: a = home xyz + radius, b = seed, speed, size, phase, c = colours, behaviour, two behaviour parameters.
+// Behaviours: 0 ribbon school, 1 hovering cloud, 2 bait ball, 3 hunter, 4 loner. Every one is a function of time alone,
+// so nothing is simulated: fpos() gives where a fish is at time t, and its heading comes from asking again a moment
+// earlier and later.
+struct FI { @location(0) p: vec3f, @location(1) n: vec4f, @location(2) a: vec4f, @location(3) b: vec4f, @location(4) c: vec4f };
+struct FO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) op: vec4f, @location(3) @interpolate(flat) sd: vec3f, @location(4) lt: f32 };
+// the slowly drifting centre of a bait ball
+fn ballC(a: vec4f, ph: f32, t: f32) -> vec3f { return a.xyz + vec3f(sin(t * .07 + ph * 9.) * 3., sin(t * .11 + ph * 5.) * 1.2, cos(t * .06 + ph * 7.) * 3.); }
+// A hunter flies a figure of eight whose crossing point is the ball, so it cuts through it twice per 48 s loop, and
+// fastest there. Bait fish call this too, to get out of its way.
+fn hunter(a: vec4f, ph: f32, k: f32, t: f32) -> vec3f {
+  let u0 = t * .13 + k * 2.3 + ph * 6.3; let u = u0 - .35 * sin(2. * u0);
+  let an = k * 2.1 + ph * 4.; let d = vec3f(cos(an), .12 * sin(k * 5. + 1.), sin(an)); let e = vec3f(-d.z, .35, d.x);
+  return ballC(a, ph, t) + d * (a.w * 3.6 * cos(u)) + e * (a.w * 1.5 * sin(2. * u));
+}
+fn fpos(a: vec4f, b: vec4f, c: vec4f, t: f32) -> vec3f {
+  let s = b.x; let h = vec3f(hs(s), hs(s + .37), hs(s + .71)); let R = a.w;
+  if (c.y < .5) { // a ribbon of fish circling an ellipse, rising and falling
+    let ta = t * b.y + b.w * 6.3 + (h.x - .5) * (26. * c.z / R); let ph = b.w * 17.;
+    let T = normalize(vec3f(-R * sin(ta), 6.6 * cos(3. * ta + ph), R * .6 * cos(ta)));
+    let S = normalize(cross(vec3f(0., 1., 0.), T)); let Up = cross(T, S);
+    return a.xyz + vec3f(R * cos(ta), 2.2 * sin(3. * ta + ph), R * .6 * sin(ta))
+      + (S * ((h.y - .5) * 5. + sin(t * .6 + s * 40.) * .5) + Up * ((h.z - .5) * 3.2 + cos(t * .5 + s * 31.) * .4)) * c.z;
+  }
+  if (c.y < 1.5) { // a cloud hovering over its home; every so often it darts in toward the reef and drifts back out
+    let q = (h - .5) * 2.;
+    let br = fract(t / (9. + 6. * b.w) + b.w + c.w);
+    let k = 1. - .5 * ss(0., .05, br) * exp(-max(br - .05, 0.) * 7.);
+    let w = vec3f(sin(t * (.5 + h.x) + s * 31.), sin(t * (.4 + h.y) + s * 17.) * .6, sin(t * (.45 + h.z) + s * 23.)) * (.25 + .08 * R) * c.z;
+    return a.xyz + vec3f(q.x, q.y * .55 + .25, q.z) * (R * (.35 + .65 * hs(s + .13)) * k) + w * k;
+  }
+  if (c.y < 2.5) { // bait ball: a swirling shell of fish that opens up around each hunter
+    let la = h.y * 2. - 1.; let cl = sqrt(1. - la * la);
+    let rd = R * (.12 + .88 * pow(h.z, .55)) * (1. + .07 * sin(t * .9 + b.w * 20.));
+    let th = h.x * TAU + t * (.3 + .25 * h.z) * (.4 + .6 * cl) + sin(t * .7 + s * 20.) * .15;
+    var p = ballC(a, b.w, t) + vec3f(cos(th) * cl, la * .8 + sin(t * 1.3 + s * 9.) * .04, sin(th) * cl) * rd;
+    for (var k = 0; k < 2; k++) {
+      let d = p - hunter(a, b.w, f32(k), t + .35); let l = length(d); let ro = R * .75;
+      p += d / max(l, .01) * (ro * 1.1 * exp(-l * l / (ro * ro)));
+    }
+    return p;
+  }
+  if (c.y < 3.5) { // hunter c.z of its ball; followers (c.w > 0) trail the leader
+    return hunter(a, b.w, c.z, t - c.w * .3) + (h - .5) * vec3f(5., 3., 5.) * step(.01, c.w);
+  }
+  // loner: wanders a loop near home, nearly stopping now and then
+  let u0 = t * b.y + b.w * 6.3; let u = u0 - .27 * sin(u0 * 3.);
+  return a.xyz + vec3f(R * cos(u) + R * .3 * cos(2.7 * u + c.w * 9.), c.z * sin(1.9 * u + c.w * 5.), R * .7 * sin(u) + R * .3 * sin(2.3 * u + c.w * 4.));
+}
+@vertex fn vsFish(i: FI) -> FO {
+  var o: FO;
+  let s = i.b.x; let t = g.cam.w; let bh = i.c.y;
+  var P = fpos(i.a, i.b, i.c, t);
+  // fish keep their distance from the camera (further for big fish), so none fills the view or gets cut by it
+  { let dc = P - g.cam.xyz; let dl = length(dc); P += dc / max(dl, .01) * max(1.2 + 2.6 * i.b.z - dl, 0.); }
+  var v = (fpos(i.a, i.b, i.c, t + .1) - fpos(i.a, i.b, i.c, t - .1)) * 5.;
+  let sp = min(length(v), 5.);
+  // hovering fish face into the current
+  if (bh > .5 && bh < 1.5) { v += vec3f(cos(i.b.w * 6.3), 0., sin(i.b.w * 6.3)) * .7; }
+  // fish swim close to level: the climb or dive is at most a third of the forward speed
+  { let hl = length(v.xz) + .05; v.y = clamp(v.y * .6, -.33 * hl, .33 * hl); }
+  let T = normalize(v + vec3f(1e-3, 0., 0.));
   let S = normalize(cross(vec3f(0., 1., 0.), T)); let Up = cross(T, S);
-  let off = S * ((h.y - .5) * 5. + sin(t * .6 + s * 40.) * .5) + Up * ((h.z - .5) * 3.2 + cos(t * .5 + s * 31.) * .4);
-  var l = i.p * i.b.z * (.75 + .5 * h.z);
-  l.z += sin(t * 9. + s * 50. + l.x * 5.) * .22 * (.25 * i.b.z - l.x);
-  let w = P + off + T * l.x + Up * l.y + S * l.z;
-  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * i.n.x + Up * i.n.y + S * i.n.z; o.op = i.p; o.sd = s;
+  let sz = i.b.z * (.8 + .4 * hs(s + .71)); let fi = abs(i.n.w);
+  var l = i.p * sz; let tw = .5 - i.p.x;
+  // swimming: a wave that grows toward the tail, harder when the fish is fast; fins ripple on their own
+  l.z += sin(t * 6. / sqrt(i.b.z) + s * 50. + i.p.x * 5.) * (.04 + .025 * sp) * tw * tw * sz;
+  l.z += sin(t * 12. + i.p.x * 20. + s * 9.) * fi * .04 * sz;
+  let w = P + T * l.x + Up * l.y + S * l.z;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * i.n.x + Up * i.n.y + S * i.n.z; o.op = vec4f(i.p, i.n.w);
+  var pan = 0.;
+  if (bh > 1.5 && bh < 2.5) { for (var k = 0; k < 2; k++) { let d = length(P - hunter(i.a, i.b.w, f32(k), t)) / (i.a.w * .9); pan = max(pan, exp(-d * d)); } }
+  o.sd = vec3f(s, i.c.x, pan);
   o.lt = shadow1(w);
   return o;
 }
-@fragment fn fsFish(i: VO) -> @location(0) vec4f {
-  let n = normalize(i.n); let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
+fn irid(x: f32) -> vec3f { return .5 + .5 * cos(TAU * (vec3f(0., .33, .67) + x)); }
+// Colours (i.sd.y): 0 bait, 1 orange-magenta anthias, 2 violet-gold anthias, 3 triggerfish, 4 hunter, 5 clownfish,
+// 6 butterflyfish, 7 blue tang, 8 idol, 9 parrotfish, 10 fusilier, 11 chromis. x runs nose (+.5) to tail, y is height.
+@fragment fn fsFish(i: FO) -> @location(0) vec4f {
+  let V = normalize(g.cam.xyz - i.wp); let L = g.sun.xyz;
   let z = zone(i.wp); let vv = vol(i.wp);
-  var alb = mix(vec3f(.50, .68, .80), vec3f(.10, .22, .40), ss(-.05, .2, i.op.y));
-  alb = mix(alb, vec3f(.95, .8, .3), step(.86, fract(i.sd * 7.7)) * .6);
-  let E = sunE(i.wp.y, z) * i.lt;
-  var c = alb * (E * (.25 + .75 * sat(dot(n, L))) + amb(i.wp, n, vv.g, z) * 1.3);
-  c += E * pow(sat(dot(n, normalize(V + L))), 24.) * 1.6 + vec3f(.3, .6, .7) * pow(1. - sat(dot(n, V)), 3.) * .25 * vv.g;
+  let ca = caus2(i.wp, distance(g.cam.xyz, i.wp));
+  var n = normalize(i.n); let fi = abs(i.op.w);
+  if (fi > .02 && dot(n, V) < 0.) { n = -n; }
+  let x = i.op.x; let y = i.op.y; let s = i.sd.x;
+  let back = ss(-.03, .08, y);
+  var alb = vec3f(.5); var emi = vec3f(0.); var ir = .2; var fc = vec3f(.5); var fg = vec3f(0.);
+  switch (u32(i.sd.y + .5)) {
+    case 0u: {
+      alb = mix(vec3f(.5, .62, .74), vec3f(.07, .2, .4), back);
+      alb = mix(alb, vec3f(.95, .8, .3), step(.86, fract(s * 7.7)) * .5); fc = alb; ir = .35;
+    }
+    case 1u: {
+      alb = mix(vec3f(1., .42, .1), vec3f(.95, .15, .45), ss(.3, -.35, x)) * (.8 + .2 * back);
+      alb = mix(alb, vec3f(.75, .3, 1.), ss(.014, .004, abs(y - .02 + .12 * (x - .36))) * ss(.05, .2, x) * step(x, .34));
+      fc = mix(alb, vec3f(.7, .25, .95), ss(.35, 1., fi)); fg = vec3f(1., .3, .75) * .5; ir = .3;
+    }
+    case 2u: {
+      alb = mix(vec3f(.5, .15, .85), vec3f(1., .75, .1), ss(.0, .09, y - .03 + x * .1));
+      fc = mix(alb, vec3f(1., .8, .15), ss(.2, .8, fi)); fg = vec3f(1., .7, .2) * .5; ir = .3;
+    }
+    case 3u: {
+      var q = vec2f(x + .03 * sin(y * 23.), y + .02 * sin(x * 17.)) * 8.; q.x += floor(q.y) * .5;
+      let hh = hs(dot(floor(q), vec2f(7.3, 13.1)));
+      let sp = ss(.2 + .2 * hh, .12 + .18 * hh, length(fract(q) - .5 - (vec2f(hh, fract(hh * 7.)) - .5) * .4)) * ss(.02, -.04, y);
+      let wv = .05 * sin(y * 37. + x * 11.) + .03 * sin(x * 29.);
+      let li = ss(.16, .03, abs(sin((x + wv) * 21. + y * 15.))) * ss(.02, .08, y) * ss(.42, .3, x) * (.5 + .5 * sin(x * 13. + 2.));
+      alb = mix(vec3f(.03, .05, .13), vec3f(.95, .97, 1.), sp);
+      alb = mix(alb, vec3f(1., .75, .1), min(li, 1.) * .8);
+      alb = mix(alb, vec3f(1., .4, .05), ss(.41, .47, x));
+      emi = vec3f(.3, .9, 1.) * sp * .35 + vec3f(1., .7, .1) * min(li, 1.) * .2;
+      fc = mix(vec3f(.04, .08, .18), vec3f(.1, .5, .7), ss(.5, 1., fi)); fg = vec3f(.2, .9, 1.) * .6;
+    }
+    case 4u: {
+      alb = mix(vec3f(.4, .47, .55), vec3f(.02, .06, .13), ss(-.02, .05, y));
+      emi = vec3f(.2, .85, 1.) * ss(.012, .002, abs(y - .012)) * ss(-.42, .2, x) * ss(.42, .3, x) * .8;
+      fc = mix(vec3f(.1, .14, .2), vec3f(.3, .42, .5), fi); fg = vec3f(.2, .6, .8) * .15; ir = .4;
+    }
+    case 5u: {
+      let bd = min(min(abs(x - .27), abs(x + .02)), abs(x + .3)); let wb = ss(.05, .035, bd);
+      alb = mix(mix(vec3f(1., .36, .04), vec3f(.01), ss(.075, .055, bd)), vec3f(1.), wb);
+      emi = vec3f(.6, .8, 1.) * wb * .25;
+      fc = mix(vec3f(1., .4, .05), vec3f(.02), ss(.6, .9, fi)); fg = vec3f(1., .5, .1) * .6;
+    }
+    case 6u: {
+      alb = mix(vec3f(.98, .96, .9), vec3f(1., .78, .08), ss(.05, -.3, x - y * .5));
+      alb *= 1. - .5 * ss(.8, 1., sin((x + abs(y) * .7) * 70.));
+      alb = mix(alb, vec3f(.02), ss(.035, .02, abs(x - .36)));
+      let es = length(vec2f(x + .22, y - .14));
+      alb = mix(alb, vec3f(.02), ss(.06, .045, es));
+      emi = vec3f(.3, .9, 1.) * ss(.075, .06, es) * ss(.045, .06, es) * 1.2;
+      fc = vec3f(1., .8, .1); fg = vec3f(1., .8, .2) * .5;
+    }
+    case 7u: {
+      let mk = ss(0., .03, y - .05 - 1.2 * (x + .02) * (x + .02)) * ss(.32, .26, x);
+      alb = mix(vec3f(.03, .22, 1.), vec3f(.01, .01, .04), mk * .9);
+      emi = vec3f(.05, .3, 1.) * .05 * (1. - mk);
+      fc = mix(vec3f(.03, .22, 1.), vec3f(1., .85, .1), ss(-.38, -.46, x)); fg = fc * .6;
+    }
+    case 8u: {
+      alb = mix(vec3f(.97, .95, .85), vec3f(1., .8, .15), ss(0., -.25, x));
+      alb = mix(alb, vec3f(.02), max(ss(.06, .04, abs(x - .24)), ss(.07, .05, abs(x + .2))));
+      alb = mix(alb, vec3f(1., .45, .05), ss(.42, .48, x));
+      fc = mix(vec3f(.02), vec3f(.95), ss(.1, .5, fi)); fg = vec3f(.8, .9, 1.) * .35;
+    }
+    case 9u: {
+      var q = vec2f(x, y) * 19.; q.x += floor(q.y) * .5;
+      let ed = ss(.3, .52, length(fract(q) - vec2f(.5, .42)));
+      let base = mix(vec3f(.08, .8, .72), vec3f(.98, .4, .62), ss(.3, -.3, x + y * .5 + .12 * sin(y * 14.))) * (.82 + .36 * hs(dot(floor(q), vec2f(3.1, 17.7))));
+      alb = base * (1. - .3 * ed); emi = base * (1. - ed) * .04;
+      fc = vec3f(.1, .5, .95); fg = vec3f(.3, .8, 1.) * .7; ir = .45;
+    }
+    case 10u: {
+      let st = ss(.022, .008, abs(y - .045));
+      alb = mix(mix(vec3f(.8, .85, .9), vec3f(.08, .4, .95), ss(-.02, .05, y)), vec3f(1., .85, .1), st);
+      emi = vec3f(1., .8, .1) * st * .25; fc = vec3f(1., .85, .15); fg = fc * .4;
+    }
+    default: {
+      alb = mix(vec3f(.5, .95, .8), vec3f(.2, .7, .9), back); ir = .7; fc = alb; fg = vec3f(.3, 1., .8) * .5;
+    }
+  }
+  if (fi < .02) { // eye
+    let e = length(vec2f(x - .36, y - .035));
+    alb = mix(mix(alb, vec3f(.95, .85, .5), ss(.036, .03, e)), vec3f(.01), ss(.024, .019, e));
+  }
+  alb = mix(alb, fc, ss(.02, .2, fi)); emi += fg * fi * fi * .6;
+  let E = sunE(i.wp.y, z) * i.lt * (.55 + .45 * ca);
+  let ndl = dot(n, L); let ndv = sat(dot(n, V));
+  // fins let some light through from behind
+  var c = alb * (E * (.25 + .75 * sat(ndl) + fi * .45 * sat(-ndl)) + amb(i.wp, n, vv.g, z) * (.3 + .6 * sat((vv.r - .5) * 2.7)) * (.6 + .4 * sat(n.y * .5 + .5 + ndl * .5)));
+  c += E * pow(sat(dot(n, normalize(V + L))), 24.) * (1.2 + i.sd.z * 3.) * (1. - fi) + vec3f(.3, .6, .7) * pow(1. - ndv, 3.) * .25 * vv.g;
+  c += irid(ndv * 1.2 + x * .6 + s) * ir * pow(1. - ndv, 1.5) * (E + .1);
+  if (i.sd.y < .5) { c += E * pow(sat(dot(n, normalize(V + L))), 5.) * (.5 + 1.5 * i.sd.z) * (1. - back); }
+  c += emi * (.75 + .25 * sin(g.cam.w * 2. + s * 40.));
   return fin(fog(c, i.wp, z));
 }
 @vertex fn vsManta(i: VI) -> VO {
@@ -591,7 +829,9 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f };
 @fragment fn fs(i: VO) -> @location(0) vec4f {
   let v = i.wp - g.cam.xyz; let d = length(v); let V = v / d;
   let fl = ss(260., 60., d);
-  let s = (textureSample(tW, sR, i.wp.xz / 13.).ba + textureSample(tW, sR, i.wp.zx / 4.7 + .2).ba * .7 + textureSample(tW, sR, i.wp.xz / 37. + .6).ba * .8) * fl;
+  let s = (textureSample(tW, sR, i.wp.xz / 13.).ba + textureSample(tW, sR, i.wp.zx / 4.7 + .2).ba * .7 + textureSample(tW, sR, i.wp.xz / 37. + .6).ba * .8) * fl
+    // fine ripples, only near the camera (further off they would shimmer)
+    + (textureSample(tW, sR, i.wp.xz / 1.9 + .4).ba * .4 + textureSample(tW, sR, i.wp.zx / .77 + .1).ba * .22) * ss(55., 5., d);
   let n = normalize(vec3f(-s.x * .8, -1., -s.y * .8));
   let ci = sat(dot(V, -n));
   let k = 1. - 1.769 * (1. - ci * ci);
@@ -599,7 +839,7 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f };
   let rr = refract(V, n, 1.33);
   let sd = max(dot(rr, g.sun.xyz), 0.);
   let fr = pow(1. - sqrt(max(k, 0.)), 5.);
-  let sky = (vec3f(.30, .78, 1.) * 1.3 * clamp(1. + 3.8 * (s.x * .6 - s.y * .8), .25, 3.) + vec3f(1., .95, .85) * (pow(sd, 60.) * 1.3 + pow(sd, 500.) * 12.)) * (1. - fr);
+  let sky = (vec3f(.27, .71, 1.) * 1.3 * clamp(1. + 2.3 * (s.x * .6 - s.y * .8), .5, 2.2) + vec3f(1., .95, .85) * (pow(sd, 60.) * 1.3 + pow(sd, 500.) * 12. + pow(sd, 4000.) * 22.)) * (1. - fr);
   let z = zone(i.wp);
   let R = reflect(V, n);
   let refl = fogIn(i.wp, R, 300., z, g.sun.xyz) * 1.15;
@@ -718,7 +958,7 @@ const W_RAYS = S_G + W_FS + /*wgsl*/`
   }
   let mu = max(dot(rd, sx), 0.);
   let ph = mix(.2 + 2.0 * mu * mu * mu, .8, g.sun.w);
-  let wc = mix(WCOL + vec3f(.04, .07, .05), PCOL + vec3f(.28, .16, .12), g.sun.w);
+  let wc = mix(WCOL + vec3f(.04, .07, .05), PCOL + vec3f(.12, .06, .04), g.sun.w);
   return vec4f(min(acc * dt * sgz * wc * SUNC * ph * g.mis.y * (1. - .55 * g.sun.w), vec3f(20.)), zl);
 }
 `;
@@ -771,10 +1011,10 @@ fn sat3(x: vec3f) -> vec3f { return clamp(x, vec3f(0.), vec3f(1.)); }
   c *= 1. - dot(q, q) * .55;
   c = tmap(c);
   let l0 = dot(c, vec3f(.2126, .7152, .0722));
-  let l = mix(l0, l0 * l0 * (3. - 2. * l0), .55);
+  let l = mix(l0, l0 * l0 * (3. - 2. * l0), .4);
   c *= l / max(l0, 1e-4);
   c = mix(c, vec3f(l), ss(.55, 1., l) * .1);
-  c = mix(vec3f(l), c, .93) + vec3f(.008, .002, 0.);
+  c = mix(vec3f(l), c, .95) + vec3f(.002, .003, .007);
   c = pow(max(c, vec3f(0.)), vec3f(1. / 2.2));
   let n = ign(fc.xy) + ign(fc.xy + 37.) - 1.;
   return vec4f(c + n / 255., 1.);
