@@ -113,6 +113,14 @@ svg { width: 1.5em; height: 1.5em; fill: currentColor; }
 }
 .g #o { display: flex; }
 .p #o { display: none; }
+/* touch feedback: a ring under the finger, and a small dot pushed out of it in the direction of the drag */
+#t {
+  position: absolute; left: 0; top: 0; width: 3.4em; height: 3.4em; margin: -1.7em 0 0 -1.7em; box-sizing: border-box;
+  border: 2px solid #e8fbffcc; border-radius: 50%; background: #e8fbff26; pointer-events: none;
+  opacity: 0; transition: opacity .15s; will-change: transform;
+}
+#t.on { opacity: 1; }
+#t i { position: absolute; left: 50%; top: 50%; width: .9em; height: .9em; margin: -.45em; border-radius: 50%; background: #e8fbff; }
 #i {
   position: absolute; top: 1em; left: 1.2em; margin: 0; font: .8em/1.6 ui-monospace, Consolas, monospace;
   white-space: pre-wrap; text-shadow: 0 1px 4px #000; pointer-events: none;
@@ -121,6 +129,7 @@ svg { width: 1.5em; height: 1.5em; fill: currentColor; }
 </head>
 <body class=l>
 <canvas id=c></canvas>
+<div id=t><i></i></div>
 <div id=m>
   <h1>Abyssal Garden</h1>
   <div id=a>
