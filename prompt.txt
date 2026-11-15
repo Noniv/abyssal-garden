@@ -12,12 +12,14 @@ CONSTRAINTS
 - Zero per-frame JS allocations (no GC stutter). Preallocate all buffers.
 
 TARGET
-- Windows 11 25H2, Chrome 157, RTX 5070 Ti, Ryzen 7800X3D, 180 Hz monitor
+- Mac OS 27, Chrome 157, M5 Max
 - 2560×1440 at full resolution. GPU frame time ≤ 11 ms average, no frame > 16.7 ms during a scripted 60 s fly-through.
 
 SCENE
 - Dense, towering kelp columns with sparkling green/gold specks, swaying
-- Strong depth fog/absorption: cyan near the surface → deep blue in the distance
+- Soft corals
+- Schools of smaller fish, bait balls with larger fish occasionally chasing
+- Strong depth fog/absorption: turquoise-cyan near the surface → deep blue in the distance
 - God rays, animated caustics, wavy surface visible from below
 - Rock canyons, arches and overhangs; floating boulders
 - Iridescent purple/pink foliage, magenta ground cover, barrel sponges, coral
