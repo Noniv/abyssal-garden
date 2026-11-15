@@ -300,7 +300,7 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
   let mat = i32(i.m.x + .5); let sd = i.m.y; let fl_ = select(-1., 1., ff);
   let on = normalize(i.on) * fl_; let n0 = normalize(i.n) * fl_;
   let dist = length(i.wp - g.cam.xyz);
-  let ts = select(1., i.m.z, mat >= 2);
+  let ts = select(1., i.m.z, mat >= 2 && mat < 6);
   let A = tri(i.op, on, .1 * ts); let B = tri(i.op, on, .43 * ts); let C = tri(i.op, on, 1.9 * ts); let F = tri(i.op, on, 6.7 * ts); let fk = ss(10., 1.5, dist) * f32(mat <= 1);
   let Wd = textureSample(tD, sR, vec2f(i.op.x * .06, (i.op.y + i.op.z) * .7));
   let big = textureSample(tD, sR, i.op.xz * .013 + i.op.y * .021).a;
@@ -351,6 +351,13 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
     if (hue > .75) { alb = vec3f(.44, .18, .42); }
     alb *= (.45 + .75 * B.h) * (.7 + .3 * C.h);
     vao = i.ao * i.ao; gloss = .2; bump = 1.4; flu = .55;
+  } else if (mat >= 6) {
+    // flat painted colour packed into m.z as r * 65536 + g * 256 + b (multiplayer subs and discoveries); 7 glows
+    let pc = u32(i.m.z + .5);
+    alb = vec3f(f32((pc >> 16u) & 255u), f32((pc >> 8u) & 255u), f32(pc & 255u)) / 255.;
+    alb = alb * alb * (.85 + .3 * B.h);
+    gloss = .6; bump = .2; emi = alb * .03;
+    if (mat == 7) { emi = alb * 1.6; }
   } else {
     let hue = fract(sd * 5.73);
     alb = mix(vec3f(.80, .08, .10), vec3f(.90, .22, .40), fract(hue * 4.));

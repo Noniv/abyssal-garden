@@ -1,0 +1,9 @@
+{
+  "name": "abyssal-crew-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "npm --prefix ../source run build:crew && wrangler deploy"
+  }
+}

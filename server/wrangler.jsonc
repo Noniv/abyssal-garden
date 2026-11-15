@@ -1,0 +1,15 @@
+{
+  // Abyssal Crew: lobbies and rooms on Durable Objects, the client served as static assets.
+  // Build the client first: npm --prefix ../source run build:crew
+  "name": "abyssal-crew",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "../crew", "binding": "ASSETS" },
+  "durable_objects": {
+    "bindings": [
+      { "name": "LOBBIES", "class_name": "Lobbies" },
+      { "name": "ROOMS", "class_name": "Room" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobbies", "Room"] }]
+}

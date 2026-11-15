@@ -101,6 +101,25 @@ Some easy first tweaks:
 - **Brightness and light rays:** `EXPO` and `RAYS` in `main.js`
 - **Swimming speed:** search for `26 : 7` in `main.js` (fast speed : normal speed)
 
+## Abyssal Crew: dive together
+
+An optional multiplayer version lives next to the single-player page and leaves `index.html` as it is.
+Up to 8 divers share a lobby: everyone sees the others' subs (six paint jobs), sends emotes with `1`–`6`, chats with `Enter` and talks with `V`. Voices are proximity based, louder up close and gone beyond 40 m.
+The world hides 52 species and relics. Swim close and press `F` to analyse one: bigger and more complex finds take longer (a ring counts down around the crosshair), and the first diver to finish gets the points while everyone sees who found what.
+
+```bash
+cd source && npm run build:crew   # writes crew/index.html
+cd ../server && npx wrangler dev  # lobbies and rooms on Cloudflare Durable Objects, http://localhost:8787
+```
+
+| File | What's inside |
+|---|---|
+| [`source/src/net/catalog.js`](source/src/net/catalog.js) | Species, points, analysis times, skins and emotes, shared by the page and the server |
+| [`source/src/net/crew.js`](source/src/net/crew.js) | The multiplayer layer in the page: lobby, other subs, discoveries, HUD, voice (WebRTC) |
+| [`server/src/worker.js`](server/src/worker.js) | The server: lobby list and one room per lobby, which decides who found what first |
+
+`npx wrangler deploy` in `server` publishes it to your Cloudflare account. Voice connects players directly (STUN only); on networks that block that, chat and the rest still work.
+
 ## License
 
 [MIT](LICENSE): free to use, change and share, including in your own projects.
