@@ -2,7 +2,7 @@
 // renderer, camera and input
 // ============================================================================
 const $ = (id) => document.getElementById(id);
-const canvas = $('c'), info = $('i'), body = document.body;
+const canvas = $('c'), info = $('i'), ring = $('t'), body = document.body;
 // a phone held upright gets the page turned on its side (see template.html)
 const rot = matchMedia('(orientation:portrait) and (pointer:coarse)');
 // loading bar: each stage glides it to `to` (the share done) over ~`ms` on the compositor, so it moves while this
@@ -609,7 +609,12 @@ const touch = (e) => {
     const x = rot.matches ? f.clientY : f.clientX, y = rot.matches ? -f.clientX : f.clientY, s = 1100 / min(innerWidth, innerHeight);
     if (first) { tx0 = x; ty0 = y; } else { mdx += (x - tx) * s; mdy += (y - ty) * s; } // the view follows the finger at once
     tx = x; ty = y;
+    // ring stays where the finger went down (in the page's own, possibly turned, coordinates), the dot follows the finger
+    if (first) ring.style.transform = `translate(${x}px,${rot.matches ? innerWidth - f.clientX : f.clientY}px)`;
+    let dx = x - tx0, dy = y - ty0; const d = hypot(dx, dy), m = 40; if (d > m) { dx *= m / d; dy *= m / d; }
+    ring.firstChild.style.transform = `translate(${dx}px,${dy}px)`;
   }
+  ring.classList.toggle('on', tId >= 0);
 };
 for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) canvas.addEventListener(n, touch, { passive: false });
 
