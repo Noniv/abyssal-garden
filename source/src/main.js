@@ -602,8 +602,9 @@ addEventListener('mousemove', (e) => { if (document.pointerLockElement === canva
 addEventListener('blur', release);
 const touch = (e) => {
   e.preventDefault(); sound(); tN = e.touches.length;
-  let f = null, first = false; for (let i = 0; i < tN; i++) if (e.touches[i].identifier === tId) f = e.touches[i];
-  if (!f) { tId = -1; if (tN) { f = e.touches[0]; tId = f.identifier; first = true; } }
+  // iOS can hand out negative identifiers, but a negative tId means "no finger": compare them as unsigned
+  let f = null, first = false; for (let i = 0; i < tN; i++) if (e.touches[i].identifier >>> 0 === tId) f = e.touches[i];
+  if (!f) { tId = -1; if (tN) { f = e.touches[0]; tId = f.identifier >>> 0; first = true; } }
   if (f) {
     // the touch axes turn with the page when it lies on its side
     const x = rot.matches ? f.clientY : f.clientX, y = rot.matches ? -f.clientX : f.clientY, s = 1100 / min(innerWidth, innerHeight);
