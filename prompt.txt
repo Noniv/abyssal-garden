@@ -29,7 +29,7 @@ CONTROLS
 WASD move, mouse look (pointer lock), Q/E up/down, Shift to accelerate
 
 VERIFICATION
-- Visual critic: a separate subagent that sees ONLY the your renders, never your code or reasoning. Give it 6 fixed camera poses, rendered at 2560×1440 in GPU-accelerated Chrome, plus a short recording of the fly-through to catch shimmer, aliasing, popping and banding. It returns prioritized, concrete defects. Iterate until it reports nothing above "minor".
+- Visual critic: a separate subagent that sees ONLY your renders, never your code or reasoning. Give it 6 fixed camera poses, rendered at 2560×1440 in GPU-accelerated Chrome, plus a short recording of the fly-through to catch shimmer, aliasing, popping and banding. It returns prioritized, concrete defects. Iterate until it reports nothing above "minor".
 - Performance: GPU timestamp queries plus a frame-time log from the scripted fly-through. Report average, 99th percentile and max.
 
 DONE WHEN: both verification gates pass. Deliver index.html, the bundle size, the perf report and the critic's final review.
