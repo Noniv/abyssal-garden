@@ -19,10 +19,14 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 
 - **Kelp forests** that sway in the current and sparkle with tiny gold and green specks
 - **Light rays** streaming down from a wavy surface, with shimmering caustics on the sea floor
-- **A sunken wooden ship**, a **giant stone whale tail**, rock arches, canyons and floating boulders
-- **Manta rays**, schools of fish, rising bubbles and drifting particles
+- **A sunken wooden ship**, a **giant stone whale tail**, rock arches and canyons
+- **Manta rays**, **great white sharks**, schools of fish, rising bubbles and drifting particles
 - **A purple grotto** with glowing magenta ground cover, coral and barrel sponges
-- **A soundscape** made up as you listen: a deep rumble, distant whale calls, soft chimes and bubbles
+- **The world above the water:** swim up through the surface and look out over a rippling sea with sky, clouds and sun glitter (you sink back once you stop swimming up)
+- **Four dark tunnels** winding through the big rock walls and the pillar: swim in at one mouth and find your way to the other. Inside it is pitch black, so your torch switches itself on a few metres in (with a click) and off again on the way out. Both ends of every tunnel are marked on the map with an orange dot and the tunnel's letter
+- **A little map circle** (bottom right) showing where you are, which way you look and where the six viewpoints are
+- **An underwater current** that carries you gently in one direction while you bob up and down, if you float still
+- **A soundscape** made up as you listen: underwater only muffled, deaf "blop blop" bubbles and the diver's own breathing; above the surface wind, swell, lapping ripples and gulls, with a splash as you break through
 
 | | |
 |---|---|
@@ -36,16 +40,17 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 | | Keyboard & mouse |
 |---|---|
 | Look around | Move the mouse |
-| Swim | `W` `A` `S` `D` |
+| Swim | `W` `A` `S` `D` or the arrow keys |
 | Up / down | `E` / `Q` |
-| Swim faster | Hold `Shift` |
+| Swim faster | Hold `Shift`, or tap `↑` twice quickly and hold it on the second tap |
 | Jump to a viewpoint | `1` to `6` (the spots in the screenshots) |
 | Menu | `Esc` releases the mouse and opens the menu with the list of controls; **Resume** takes you back |
-| Sound on / off | `M` (sound starts when you dive in) |
+| Sound on / off | `M`, or the **Sound** buttons in the menu (remembered; sound starts when you dive in) |
+| Map circle on / off | `N` |
 | Performance stats | `H` |
 | Detail level | **Low**, **Medium** or **High** in the menu (reloads the page) |
 
-The seabed, cliffs and arches are solid: you glide along the rock instead of swimming into it, and you still fit through every tunnel and arch. Kelp, plants, corals, sponges, loose rocks, the floating boulders, the ship and the whale tail you can swim through.
+The seabed, cliffs and arches are solid: you glide along the rock instead of swimming into it, and you still fit through every tunnel and arch. Kelp, plants, corals, sponges, loose rocks, the ship and the whale tail you can swim through. Sharks and manta rays are solid too: you can't swim through their bodies, fins or wings, and you slide along them (fish are small enough to swim through).
 
 **On a touchscreen:** hold one finger down to swim forward and slide it to steer. Put a second finger down to go faster. The `≡` button in the corner opens the menu. Phones always show the scene in landscape and start on Low or Medium detail. (Touch support is experimental.)
 

@@ -2,6 +2,24 @@
 // world layout + procedural content generation (load-time only)
 // ============================================================================
 
+// Sharks and manta rays: where each one is (the same formulas the vertex shaders run) and its body as ellipsoids, used both
+// to keep the camera out of them and to keep their orbits clear of rock. Body units: lengths of the creature.
+const BP = new Float64Array(12); // pose: position, then the body's sideways, up and forward axes
+const SHARK_E = [[0, 0, .05, .2, .22, .97], [0, .18, -1.2, .04, .32, .25], [0, -.12, -1.12, .04, .2, .2], [0, .38, .08, .03, .2, .24], [.42, -.26, .1, .4, .05, .24], [-.42, -.26, .1, .4, .05, .24]];
+const MANTA_E = [[0, 0, 0, .22, .16, .45], [.5, 0, -.02, .5, .14, .36], [-.5, 0, -.02, .5, .14, .36], [0, 0, -1.2, .03, .03, .75]];
+function bodyPose(a, o, t, manta) {
+  const R = a[o + 3], ta = t * a[o + 5] + a[o + 4], ph = a[o + 7], sg = a[o + 5] < 0 ? -1 : 1;
+  let px, py, pz, tx, ty, tz, bank;
+  if (manta) { px = a[o] + R * cos(ta); py = a[o + 1] + 2.5 * sin(2 * ta + ph); pz = a[o + 2] + R * 0.75 * sin(ta); tx = -R * sin(ta); ty = 5 * cos(2 * ta + ph); tz = R * 0.75 * cos(ta); bank = -0.28 * sg; }
+  else { px = a[o] + R * cos(ta); py = a[o + 1] + 1.6 * sin(1.5 * ta + ph * 6); pz = a[o + 2] + R * 0.8 * sin(ta); tx = -R * sin(ta); ty = 2.4 * cos(1.5 * ta + ph * 6); tz = R * 0.8 * cos(ta); bank = -0.1 * sg; }
+  const tl = hypot(tx, ty, tz); tx *= sg / tl; ty *= sg / tl; tz *= sg / tl;
+  let sx = tz, sz = -tx; const sl = hypot(sx, sz); sx /= sl; sz /= sl; // normalize(cross(up, T))
+  let ux = ty * sz, uy = tz * sx - tx * sz, uz = -ty * sx; // cross(T, S)
+  const cb = cos(bank), sb = sin(bank), nsx = sx * cb + ux * sb, nsy = uy * sb, nsz = sz * cb + uz * sb;
+  ux = ux * cb - sx * sb; uy = uy * cb; uz = uz * cb - sz * sb;
+  BP[0] = px; BP[1] = py; BP[2] = pz; BP[3] = nsx; BP[4] = nsy; BP[5] = nsz; BP[6] = ux; BP[7] = uy; BP[8] = uz; BP[9] = tx; BP[10] = ty; BP[11] = tz;
+}
+
 // designed rock masses: ax, az, bx, bz, radius, top, overhang, waist
 const MESAS = [
   [-37, -42, -33, -22, 9, -7, 3.5, 2], [-29, -15, -33, 5, 12, -14, 3, 2], [-36, 11, -30, 27, 9, -5, 4, 2],   // west wall of the main canyon
@@ -33,6 +51,33 @@ const CLEARS = [
   [0, -45, 0, 35, 22, 10], [0, -86, 0, -86, 46, 12], [42, 24, 74, 6, 22, 10], [72, -26, 72, -26, 26, 10],
   [-60, -36, -60, 36, 13, 8], [-60, 42, -18, 46, 12, 8], [4, 58, 8, 100, 24, 10], [-34, -74, -56, -46, 11, 8],
 ];
+// tunnels through the big rock masses: each is a winding path (x, y, z points) with a radius; you go in at one end and
+// have to find the other. Every segment is carved like a HOLES entry; the rest of the machinery (the dark volume, the map
+// markers, the torch) reads this list. The first and last points lie outside the rock: the mouths.
+const TUNNELS = [
+  { id: 'A', r: 3.4, pts: [[-38, -30, -62], [-37, -30, -50], [-34, -27, -40], [-39, -31, -30], [-35, -33, -20], [-31, -30, -10], [-35, -27, 0], [-30, -30, 10], [-33, -32, 20], [-32, -30, 30], [-30, -28, 44]] },
+  { id: 'B', r: 3.4, pts: [[30, -30, -64], [30, -30, -52], [33, -28, -40], [31, -31, -28], [36, -29, -17], [33, -32, -7], [31, -30, 3], [34, -28, 12], [34, -28, 26]] },
+  { id: 'C', r: 3.4, pts: [[-83, -30, -56], [-83, -30, -46], [-81, -29, -38], [-84, -31, -28], [-79, -29, -18], [-80, -31, -8], [-83, -29, 2], [-80, -31, 12], [-79, -30, 24], [-79, -30, 42]] },
+  { id: 'D', r: 2.7, pts: [[-17, -29, -108], [-9, -29, -105], [-2, -27, -109], [3, -30, -103], [8, -28, -107], [17, -29, -104]] },
+];
+for (const t of TUNNELS) {
+  t.cum = [0]; for (let i = 1; i < t.pts.length; i++) t.cum.push(t.cum[i - 1] + hypot(t.pts[i][0] - t.pts[i - 1][0], t.pts[i][1] - t.pts[i - 1][1], t.pts[i][2] - t.pts[i - 1][2]));
+  t.len = t.cum[t.cum.length - 1];
+  for (let i = 0; i < t.pts.length - 1; i++) HOLES.push([...t.pts[i], t.r, ...t.pts[i + 1]]);
+}
+// how dark it is at a point: 1 inside a tunnel, fading out through its wall, and from nothing at a mouth to full dark ~11 m in
+function tunnelDark(x, y, z, only) {
+  let best = 0;
+  for (const t of TUNNELS) for (let i = 0; i < t.pts.length - 1; i++) {
+    const a = t.pts[i], b = t.pts[i + 1], bx = b[0] - a[0], by = b[1] - a[1], bz = b[2] - a[2], l2 = bx * bx + by * by + bz * bz;
+    const h = clamp(((x - a[0]) * bx + (y - a[1]) * by + (z - a[2]) * bz) / l2, 0, 1);
+    const dist = hypot(x - a[0] - bx * h, y - a[1] - by * h, z - a[2] - bz * h);
+    if (dist > t.r * 1.5 + 0.5) continue;
+    const s = t.cum[i] + h * Math.sqrt(l2), k = sstep(t.r * 1.5 + 0.5, t.r * 0.95, dist) * sstep(1, 11, min(s, t.len - s));
+    if (k > best) best = k;
+  }
+  return best;
+}
 const PURPLE = [6, 84];
 const zoneP = (x, z) => sstep(44, 26, hypot(x - PURPLE[0], z - PURPLE[1]));
 const MAGENTA = [[14, 6, 13], [-4, 20, 9], [6, 84, 30], [-58, 8, 10], [50, 30, 12], [8, -70, 10], [-12, -98, 9], [-36, 44, 9], [-46, -60, 9], [24, 42, 8], [-56, 26, 9], [-44, 38, 8], [-10, 44, 8], [12, 24, 8], [-50, -45, 8]];
@@ -129,7 +174,13 @@ function makeWorld(D, T, flyPts, POSES) {
   };
   const pickV = () => ((rnd() * T.nv) | 0) * 3;
   const tangent = (n) => { let t = abs(n[1]) < 0.9 ? [n[2], 0, -n[0]] : [1, 0, 0]; const l = hypot(...t); t = t.map((v) => v / l); return [t, [n[1] * t[2] - n[2] * t[1], n[2] * t[0] - n[0] * t[2], n[0] * t[1] - n[1] * t[0]]]; };
-  const nearFly = (x, y, z, r) => { for (const p of flyPts) if (hypot(x - p[0], z - p[2]) < r && y < p[1] + 3 && y > p[1] - 13) return true; return false; };
+  // the camera path, and the mouths of the tunnels (kept free of growth so they can be spotted), are kept clear of decoration
+  const nearFly = (x, y, z, r) => {
+    for (const p of flyPts) if (hypot(x - p[0], z - p[2]) < r && y < p[1] + 3 && y > p[1] - 13) return true;
+    for (const t of TUNNELS) for (const e of [t.pts[0], t.pts[t.pts.length - 1]]) if (hypot(x - e[0], z - e[2]) < 13 + r) return true;
+    return false;
+  };
+  const inTunnel = (x, y, z) => tunnelDark(x, y, z) > 0.2; // loose rocks stay out of the tunnels
   const nearPose = (x, z, r = 3) => { for (const p of POSES) if (hypot(x - p[0], z - p[2]) < r) return true; return false; };
   // --- kelp columns
   const column = (x, y, z, H, kind, dens = 1) => {
@@ -171,6 +222,7 @@ function makeWorld(D, T, flyPts, POSES) {
     const i = c[(rnd() * c.length) | 0], y = f[i];
     if (grad(x, y, z)[1] < 0.55) return;
     if (!force && flyPts.some((p) => hypot(x - p[0], z - p[2]) < 5)) return;
+    if (TUNNELS.some((t) => [t.pts[0], t.pts[t.pts.length - 1]].some((e) => hypot(x - e[0], z - e[2]) < 15))) return; // keep tunnel mouths in view
     occ.add(key);
     column(x, y - 0.3, z, min(f[i + 1] - rr(0.8, 5), force ? rr(30, 42) : rr(15, 40)), kind, dens);
   };
@@ -269,21 +321,10 @@ function makeWorld(D, T, flyPts, POSES) {
       solid(coral ? 7 + (rnd() * 3 | 0) : 4 + (rnd() * 3 | 0), x - nx / l * 0.1 * sc, y - ny / l * 0.1 * sc, z - nz / l * 0.1 * sc, sc, qMul(qFromY(nx / l, ny / l, nz / l), qAxis(0, 1, 0, rnd() * TAU)), coral ? 5 : 4, rnd(), 1, 0);
     }
   }
-  // --- rocks: floating boulder clusters + scattered ground rocks
-  const BOULD = [[-11, -11, -105, 14, 5], [-56, -19, -18, 18, 6], [10, -13, -88, 22, 7], [24, -15, -24, 22, 7], [-18, -12, 4, 14, 6], [30, -14, 30, 16, 6], [36, -12, -70, 22, 8], [-30, -13, -84, 16, 7], [-58, -14, 0, 14, 6], [19, -13, 98, 18, 6], [62, -9, 34, 14, 6]];
-  rseed(8);
-  for (let i = 0; i < 9; i++) { const a = rnd() * TAU, r = rr(60, 150); BOULD.push([cos(a) * r, rr(-20, -9), sin(a) * r, 10 + rnd() * 12 | 0, rr(5, 9)]); }
-  for (const b of BOULD) for (let i = 0; i < b[3]; i++) {
-    const sc = rnd() < 0.12 ? rr(1.8, 3.2) : rr(0.35, 1.5);
-    const x = b[0] + rr(-1, 1) * b[4], y = b[1] + rr(-1, 1) * b[4] * 0.6, z = b[2] + rr(-1, 1) * b[4];
-    if (Dw(x, y, z) > -sc) continue;
-    const bob = rr(0.12, 0.4), sd = rnd();
-    solid(rnd() * 4 | 0, x, min(y, -2 - sc), z, sc, qRand(), 1, sd, 1, bob);
-    if (sc > 1.1) for (let j = 0; j < 7; j++) solid(rnd() * 4 | 0, x + rr(-1.6, 1.6) * sc, min(y, -2 - sc) + rr(-1.4, 1) * sc, z + rr(-1.6, 1.6) * sc, rr(0.1, 0.35), qRand(), 1, sd, 1, bob);
-  }
+  // --- rocks (every rock rests on the sea floor: nothing floats loose in the water)
   rseed(9);
   for (let i = 0; i < 2600; i++) {
-    const k = pickV(); if (T.wn[k + 1] < 0.7 || hypot(T.wp[k], T.wp[k + 2]) > 170 || nearFly(T.wp[k], T.wp[k + 1], T.wp[k + 2], 6)) continue;
+    const k = pickV(); if (T.wn[k + 1] < 0.7 || hypot(T.wp[k], T.wp[k + 2]) > 170 || nearFly(T.wp[k], T.wp[k + 1], T.wp[k + 2], 6) || inTunnel(T.wp[k], T.wp[k + 1], T.wp[k + 2])) continue;
     const sc = rr(0.25, 1.3) * (rnd() < 0.1 ? 2 : 1);
     solid(rnd() * 4 | 0, T.wp[k], T.wp[k + 1] + sc * 0.2, T.wp[k + 2], sc, qRand(), 1, rnd(), 1, 0);
   }
@@ -291,14 +332,14 @@ function makeWorld(D, T, flyPts, POSES) {
   rseed(10);
   for (let i = 0; i < 60000; i++) {
     const k = pickV(), x = T.wp[k], y = T.wp[k + 1], z = T.wp[k + 2], ny = T.wn[k + 1];
-    if (hypot(x, z) > 172 || y > -3 || (ny > 0.8 && rnd() < 0.6) || nearFly(x, y, z, 3.5)) continue;
+    if (hypot(x, z) > 172 || y > -3 || (ny > 0.8 && rnd() < 0.6) || nearFly(x, y, z, 3.5) || inTunnel(x, y, z)) continue;
     const sc = (0.35 + 2.1 * pow(rnd(), 2.6)) * (ny > 0.8 ? 0.5 : 1), q = qRand();
     chunks[(sc > 1.15 ? 3 : 0) + (rnd() * 3 | 0)][cellOf(x, z)].push(x - T.wn[k] * sc * 0.3, y - ny * sc * 0.3, z - T.wn[k + 2] * sc * 0.3, sc, q[0], q[1], q[2], q[3], 1, rnd(), sc > 1.15 ? 0 : 96, 0);
   }
   rseed(11);
   for (let i = 0; i < 170000; i++) { // pebbles and rubble on the sea floor
     const k = pickV(), x = T.wp[k] + rr(-0.4, 0.4), z = T.wp[k + 2] + rr(-0.4, 0.4), y = T.wp[k + 1];
-    if (T.wn[k + 1] < 0.8 || hypot(x, z) > 170 || nearFly(x, y, z, 1.3)) continue;
+    if (T.wn[k + 1] < 0.8 || hypot(x, z) > 170 || nearFly(x, y, z, 1.3) || inTunnel(x, y, z)) continue;
     const sc = 0.05 + 0.3 * pow(rnd(), 2), q = qRand();
     nth++ % THIN || chunks[6][cellOf(x, z)].push(x, y - sc * 0.25, z, sc, q[0], q[1], q[2], q[3], 1, rnd(), 44, 0);
   }
@@ -340,7 +381,7 @@ function makeWorld(D, T, flyPts, POSES) {
   };
 
   // --- half-res volume: r = openness, g = skylight
-  const hx = NX / 2, hy = NY / 2, hz = NZ / 2, volD = new Uint8Array(hx * hy * hz * 2);
+  const hx = NX / 2, hy = NY / 2, hz = NZ / 2, volD = new Uint8Array(hx * hy * hz * 4);
   let Lp = new Float32Array(hx * hz).fill(1), Ln = new Float32Array(hx * hz), tmp = new Float32Array(hx * hz);
   for (let y = hy - 1; y >= 0; y--) {
     for (let z = 0; z < hz; z++) for (let x = 0; x < hx; x++) { const i = x + hx * z; tmp[i] = (Lp[x > 0 ? i - 1 : i] + 2 * Lp[i] + Lp[x < hx - 1 ? i + 1 : i]) * 0.25; }
@@ -351,9 +392,20 @@ function makeWorld(D, T, flyPts, POSES) {
       const o = x + hx * (y + hy * z);
       const l = b * clamp(0.5 - d / 1.5, 0, 1) * (1 - min(kelpAbs[o], 0.5));
       Ln[i] = l;
-      volD[o * 2] = clamp(0.5 - d / 12, 0, 1) * 255; volD[o * 2 + 1] = min(1, b) * 255;
+      volD[o * 4] = clamp(0.5 - d / 12, 0, 1) * 255; volD[o * 4 + 1] = min(1, b) * 255;
     }
     const t = Lp; Lp = Ln; Ln = t;
+  }
+
+  // darkness inside the tunnels (b channel; the volume's voxels are 1.5 m, centred 0.75 m in from the corner at -192, -56, -192)
+  for (const t of TUNNELS) for (let i = 0; i < t.pts.length - 1; i++) {
+    const a = t.pts[i], b = t.pts[i + 1], m = t.r * 1.5 + 2.5;
+    const lo = [0, 1, 2].map((k) => min(a[k], b[k]) - m), hi = [0, 1, 2].map((k) => max(a[k], b[k]) + m), org = [-192, -56, -192];
+    const i0 = [0, 1, 2].map((k) => clamp(floor((lo[k] - org[k]) / 1.5), 0, [hx, hy, hz][k] - 1)), i1 = [0, 1, 2].map((k) => clamp(floor((hi[k] - org[k]) / 1.5), 0, [hx, hy, hz][k] - 1));
+    for (let z = i0[2]; z <= i1[2]; z++) for (let y = i0[1]; y <= i1[1]; y++) for (let x = i0[0]; x <= i1[0]; x++) {
+      const o = (x + hx * (y + hy * z)) * 4 + 2, v = tunnelDark(org[0] + (x + 0.5) * 1.5, org[1] + (y + 0.5) * 1.5, org[2] + (z + 0.5) * 1.5) * 255;
+      if (v > volD[o]) volD[o] = v;
+    }
   }
 
   // --- ground map: r magenta cover, b purple zone, a sand
@@ -364,13 +416,70 @@ function makeWorld(D, T, flyPts, POSES) {
   }
 
   // --- fish schools + mantas
+  // Their paths are formulas run on the GPU, so they know nothing of the rock: each orbit is checked against the terrain here
+  // (it is moved or shrunk until clear) and any fish whose own path would still touch rock is left out
+  const free = (x, y, z, m) => Dw(x, y, z) < -m;
+  const fitOrbit = (c, zs, ay, m) => {
+    const ok = (cx, cy, cz, r) => { for (let k = 0; k < 72; k++) { const a = k / 72 * TAU, x = cx + r * cos(a), z = cz + r * zs * sin(a); for (const dy of [-ay, 0, ay]) if (!free(x, cy + dy, z, m)) return false; } return true; };
+    for (const sc of [1, 0.85, 0.7, 0.55, 0.42]) for (const dy of [0, 4, -4, 8]) for (const sh of [0, 5, 10, 18]) for (let j = 0; j < (sh ? 12 : 1); j++) {
+      const a = j / 12 * TAU, cx = c[0] + cos(a) * sh, cz = c[2] + sin(a) * sh, cy = c[1] + dy;
+      if (cy + ay < -2 && cy - ay > -50 && ok(cx, cy, cz, c[3] * sc)) return [cx, cy, cz, c[3] * sc];
+    }
+    return c;
+  };
+  // sharks and rays: the whole body (every ellipsoid's extremes plus fin and wing tips) over a full lap must stay at least
+  // 1 m clear of rock and under the surface; an orbit that can't be made to fit by moving or shrinking it is dropped
+  const BODY_X = { shark: [[0, .6, -.1], [0, .45, -1.42], [.25, .4, -1.42], [-.25, .4, -1.42], [.66, -.4, -.15], [-.66, -.4, -.15], [0, .02, 1.02]], manta: [[1, .4, 0], [-1, .4, 0], [1, -.3, 0], [-1, -.3, 0], [0, 0, -1.95]] };
+  const bodyClear = (p, manta) => {
+    const pts = []; for (const e of manta ? MANTA_E : SHARK_E) { pts.push([e[0], e[1], e[2]]); for (const s of [-1, 1]) pts.push([e[0] + s * e[3], e[1], e[2]], [e[0], e[1] + s * e[4], e[2]], [e[0], e[1], e[2] + s * e[5]]); }
+    pts.push(...(manta ? BODY_X.manta : BODY_X.shark));
+    const sz = p[6];
+    for (let k = 0; k < 120; k++) {
+      bodyPose(p, 0, (k / 120 * TAU - p[4]) / p[5], manta);
+      for (const q of pts) {
+        const y = BP[1] + (BP[4] * q[0] + BP[7] * q[1] + BP[10] * q[2]) * sz;
+        if (y > -1.5 || !free(BP[0] + (BP[3] * q[0] + BP[6] * q[1] + BP[9] * q[2]) * sz, y, BP[2] + (BP[5] * q[0] + BP[8] * q[1] + BP[11] * q[2]) * sz, 1)) return false;
+      }
+    }
+    return true;
+  };
+  const fitBody = (p, manta) => {
+    for (const sc of [1, 0.85, 0.7, 0.55, 0.42]) for (const dy of [0, 4, -4, 8, -8]) for (const sh of [0, 5, 10, 18, 28]) for (let j = 0; j < (sh ? 12 : 1); j++) {
+      const a = j / 12 * TAU, q = p.slice(); q[0] += cos(a) * sh; q[2] += sin(a) * sh; q[1] += dy; q[3] *= sc;
+      if (bodyClear(q, manta)) return q;
+    }
+    return null;
+  };
+  const hsj = (x) => fract(sin(x * 127.1) * 43758.5453);
+  // the same path the fish vertex shader draws, sampled over ~12 minutes
+  const fishClear = (f) => {
+    const [cx, cy, cz, R, s, om, , ss] = f, h0 = hsj(s), h1 = hsj(s + 0.37), h2 = hsj(s + 0.71), sg = om < 0 ? -1 : 1;
+    for (let k = 0; k < 96; k++) {
+      const t = k * 7.3, ta = t * om + ss * 6.3 + (h0 - 0.5) * (26 / R), ph = ss * 17;
+      const px = cx + R * cos(ta), py = cy + 2.2 * sin(3 * ta + ph), pz = cz + R * 0.6 * sin(ta);
+      let tx = -R * sin(ta), ty = 6.6 * cos(3 * ta + ph), tz = R * 0.6 * cos(ta); const tl = hypot(tx, ty, tz); tx *= sg / tl; ty *= sg / tl; tz *= sg / tl;
+      let sx = tz, sz = -tx; const sl = hypot(sx, sz) || 1; sx /= sl; sz /= sl;
+      const ux = ty * sz, uy = tz * sx - tx * sz, uz = -ty * sx;
+      const a = (h1 - 0.5) * 5 + sin(t * 0.6 + s * 40) * 0.5, b = (h2 - 0.5) * 3.2 + cos(t * 0.5 + s * 31) * 0.4;
+      if (!free(px + sx * a + ux * b, py + uy * b, pz + sz * a + uz * b, 0.7)) return false;
+    }
+    return true;
+  };
   const fish = [];
   rseed(14);
   const SCH = [[-2, -36, -10, 15, 520, 0.3, 1, 0.945], [8, -30, -70, 22, 420, 0.32, -1], [48, -30, 14, 18, 360, 0.3, 1], [-58, -30, -8, 11, 420, 0.28, -1, 0.3], [8, -36, 84, 16, 320, 0.28, 1],
     [-90, -28, -70, 25, 300, 0.3, 1], [95, -30, 70, 25, 300, 0.3, -1], [0, -22, 20, 30, 380, 0.34, -1], [-30, -30, -100, 18, 300, 0.3, 1], [16, -36, 30, 12, 300, 0.3, 1], [-48, -34, -58, 12, 300, 0.3, -1], [-45, -35, 38, 14, 320, 0.3, 1]];
-  for (const s of SCH) { const ss = s[7] === undefined ? rnd() : s[7]; for (let i = 0; i < s[4]; i++) fish.push(s[0], s[1], s[2], s[3], rnd(), s[6] * 1.9 / s[3], s[5], ss); }
+  for (const s0 of SCH) {
+    const s = s0.slice(), o = fitOrbit([s[0], s[1], s[2], s[3]], 0.6, 3.6, 2.2); s[0] = o[0]; s[1] = o[1]; s[2] = o[2]; s[3] = o[3];
+    const ss = s[7] === undefined ? rnd() : s[7];
+    for (let i = 0; i < s[4]; i++) { const f = [s[0], s[1], s[2], s[3], rnd(), s[6] * 1.9 / s[3], s[5], ss]; if (fishClear(f)) fish.push(...f); }
+  }
   const mantas = [];
-  for (const m of [[1, -28, 3.5, 14, 3.012, 0.085, 3.6, 0.1], [49, -31, 24.5, 5, 0.029, -0.08, 3.7, 0.4], [0, -14, -80, 34, 0.3, 0.06, 5.2, 0.7], [-50, -18, 20, 26, 5, -0.075, 3.8, 0.55], [10, -16, 86, 26, 2.2, 0.07, 4.4, 0.85], [20, -11, -20, 46, 4.2, -0.045, 5.6, 0.25]]) mantas.push(...m);
+  for (const m of [[1, -28, 3.5, 14, 3.012, 0.085, 3.6, 0.1], [49, -31, 24.5, 5, 0.029, -0.08, 3.7, 0.4], [0, -14, -80, 34, 0.3, 0.06, 5.2, 0.7], [-50, -18, 20, 26, 5, -0.075, 3.8, 0.55], [10, -16, 86, 26, 2.2, 0.07, 4.4, 0.85], [20, -11, -20, 46, 4.2, -0.045, 5.6, 0.25]]) { const o = fitBody(m.slice(), 1); if (o) mantas.push(...o); }
+
+  // sharks: x, y, z, orbit radius, phase, angular speed (sign = direction), size, seed. Orbits shadow the mantas' (all known to be clear of rock), slightly tighter
+  const sharks = [];
+  for (const s of [[-50, -15, 20, 23, 1.3, 0.1, 3, 0.15], [10, -13, 86, 23, 4.1, -0.09, 3.2, 0.4], [0, -11, -80, 30, 2.2, 0.075, 3.6, 0.65], [20, -8, -20, 40, 0.5, -0.06, 4.4, 0.9], [1, -25, 3.5, 12.5, 5.2, -0.12, 2.6, 0.3]]) { const o = fitBody(s.slice(), 0); if (o) sharks.push(...o); }
 
   // --- drifting particles
   const snow = new Float32Array(9000 * 4);
@@ -387,7 +496,24 @@ function makeWorld(D, T, flyPts, POSES) {
     for (let c = 0; c < nCells; c++) { const a = L[c]; for (let i = 0; i < a.length; i += 12) { for (let j = 0; j < 12; j++) data[k++] = a[i + j]; lo[c] = min(lo[c], a[i + 1] - 3); hi[c] = max(hi[c], a[i + 1] + 3); } }
     return { data, n, start, lo, hi };
   };
-  return { gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), snow };
+  // --- the map circle: a top-down picture of the whole arena (seabed depth with relief shading, rock reaching the surface
+  // in sand colour), 128 x 128 samples over x, z in [-160, 160]
+  const MN = 128, MR = 160, mh = new Float32Array(MN * MN), mt = new Float32Array(MN * MN), mapImg = new Uint8ClampedArray(MN * MN * 4);
+  for (let j = 0; j < MN; j++) for (let i = 0; i < MN; i++) {
+    const f = floorsAt((i + 0.5) / MN * 2 * MR - MR, (j + 0.5) / MN * 2 * MR - MR);
+    mh[i + MN * j] = f.length ? f[f.length - 2] : -48; mt[i + MN * j] = f.length ? f[0] : -48;
+  }
+  for (let j = 0; j < MN; j++) for (let i = 0; i < MN; i++) {
+    const o = (i + MN * j) * 4, x = (i + 0.5) / MN * 2 * MR - MR, z = (j + 0.5) / MN * 2 * MR - MR, r = hypot(x, z);
+    const H = (a, b) => mh[clamp(a, 0, MN - 1) + MN * clamp(b, 0, MN - 1)];
+    const t = pow(clamp(-mh[i + MN * j] / 44, 0, 1), 0.8), rel = clamp(1 + (H(i - 1, j) - H(i + 1, j) + H(i, j - 1) - H(i, j + 1)) * 0.05, 0.55, 1.45);
+    let c = [mix(0.62, 0.06, t), mix(0.92, 0.27, t), mix(0.92, 0.46, t)];
+    const sand = sstep(-5, -1.5, mt[i + MN * j]); c = c.map((v, k) => mix(v, [0.86, 0.82, 0.68][k], sand));
+    const dim = r > 152 ? 0.5 : 1;
+    for (let k = 0; k < 3; k++) mapImg[o + k] = clamp(c[k] * rel * dim * 255, 0, 255);
+    mapImg[o + 3] = r <= MR ? 255 : 0;
+  }
+  return { mapImg, mapH: mh, mapT: mt, gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), sharks: new Float32Array(sharks), snow };
 }
 const fract = (x) => x - floor(x);
 
@@ -543,6 +669,89 @@ function meshManta() {
     const n1 = m.p.length / 3;
     m.tube([[sx * 0.12, -0.02, 0.48], [sx * 0.135, -0.05, 0.6], [sx * 0.115, -0.09, 0.69], [sx * 0.085, -0.125, 0.74]], (k) => 0.045 * (1 - k / 4.4), 6, true);
     for (let k = n1; k < m.aux.length; k++) m.aux[k] = sx * 0.1;
+  }
+  return m;
+}
+// shark (great white): length 2 along z (nose +z, tail -z), local y up. A dense, smooth body with a carved open mouth,
+// gill slits and teeth, plus thin aerofoil-section fins. aux (normal.w) = how deep inside a mouth / gill slit a
+// vertex is (0..1), -1 on teeth; the shader darkens and whitens by it
+function meshShark() {
+  const m = new Mesh(), M = 72;
+  //             z      half-height  half-width
+  const ST = [[1.0, 0.0, 0.0], [0.985, 0.022, 0.03], [0.95, 0.05, 0.06], [0.88, 0.085, 0.095], [0.78, 0.115, 0.125], [0.64, 0.15, 0.15], [0.45, 0.19, 0.18], [0.25, 0.215, 0.195], [0.05, 0.21, 0.18], [-0.2, 0.175, 0.15], [-0.45, 0.125, 0.105], [-0.68, 0.08, 0.068], [-0.85, 0.052, 0.05], [-0.95, 0.045, 0.052], [-0.99, 0.042, 0.045]];
+  const cr = (p0, p1, p2, p3, t) => 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
+  const at = (z) => {
+    let i = 0; while (i < ST.length - 2 && z < ST[i + 1][0]) i++;
+    const t = clamp((ST[i][0] - z) / (ST[i][0] - ST[i + 1][0]), 0, 1), g = (k) => ST[clamp(k, 0, ST.length - 1)];
+    return [1, 2].map((c) => max(0, cr(g(i - 1)[c], g(i)[c], g(i + 1)[c], g(i + 2)[c], t)) * 1.08);
+  };
+  const mz = (x) => 0.72 - 3.3 * x * x; // the mouth line on the underside of the snout
+  // carve the mouth (a groove at the lip line, the lower jaw dropped a little), and five gill slits, into a body point
+  const carve = (x, y, z) => {
+    let oy = 0, rd = 0, ax = 0; const w = abs(x);
+    if (z > 0.4 && w < 0.17) {
+      const dz = z - mz(x), k = sstep(0.15, 0.115, w) * sstep(0.04, -0.03, y);
+      oy -= 0.011 * sstep(0.003, -0.012, dz) * (1 - sstep(-0.05, -0.17, dz)) * k;
+      rd += 0.009 * exp(-pow(dz / 0.007, 2)) * k;
+      ax = max(ax, exp(-pow((dz + 0.002) / 0.008, 2)) * k * 0.55);
+    }
+    if (w > 0.07 && z > 0.2 && z < 0.54) for (let g = 0; g < 5; g++) {
+      const dz = z - (0.5 - 0.042 * g - 0.15 * y), k = sstep(0.07, 0.1, w) * sstep(0.15, 0.1, y) * sstep(-0.13, -0.09, y);
+      rd += 0.008 * exp(-pow(dz / 0.009, 2)) * k; ax = max(ax, exp(-pow(dz / 0.011, 2)) * k * 0.45);
+    }
+    const l = hypot(x, y) || 1;
+    return [x - x / l * rd, y + oy - y / l * rd, z, ax];
+  };
+  const zs = []; for (let z = 0.995; z > 0.15; z -= 0.007) zs.push(z); for (let z = 0.15; z > -0.985; z -= 0.016) zs.push(z); zs.push(-0.99);
+  const surf = (a, z) => { const [h, wd] = at(z), sy = sin(a), cx = cos(a); return carve(wd * cx * (1 - 0.14 * sy), (sy > 0 ? h * sy : h * 0.88 * sy) - 0.02 * sstep(0.5, 1, z), z); };
+  const NS = zs.length, rings = [];
+  for (let j = 0; j < NS; j++) { const r = []; for (let k = 0; k < M; k++) { const p = surf(k / M * TAU, zs[j]); r.push(m.v(p[0], p[1], p[2], p[3])); } rings.push(r); }
+  const nose = m.v(0, -0.004, 1.0, 0);
+  for (let k = 0; k < M; k++) m.tri(rings[0][(k + 1) % M], rings[0][k], nose);
+  for (let j = 0; j < NS - 1; j++) for (let k = 0; k < M; k++) { const k2 = (k + 1) % M; m.quad(rings[j][k], rings[j + 1][k], rings[j + 1][k2], rings[j][k2]); }
+  const last = rings[NS - 1], c0 = m.v(0, 0, -0.99, 0); for (let k = 0; k < M; k++) m.tri(last[(k + 1) % M], last[k], c0);
+  // teeth: small serrated-looking cones along both lips
+  const NT = 45;
+  for (let i = 0; i < NT; i++) {
+    const u = i / (NT - 1) * 2 - 1, x = u * 0.112, len = 0.013 - 0.006 * u * u, hw = 0.0042;
+    for (const up of [1, 0]) {
+      const z = mz(x) + (up ? 0.0015 : -0.006), [h, wd] = at(z), cx = clamp(x / (wd * 1.14), -1, 1), sy = -sqrt(1 - cx * cx);
+      const b = carve(x, h * 0.88 * sy - 0.02 * sstep(0.5, 1, z), z), dx = 8 * x * hw * 0.5, tl = hypot(1, dx) ;
+      const A = m.v(b[0] - hw / tl, b[1], b[2] + dx * hw / tl, -1), B = m.v(b[0] + hw / tl, b[1], b[2] - dx * hw / tl, -1);
+      const C = m.v(b[0], b[1], b[2] + 0.5 * hw * 1.2, -1), D = m.v(b[0] + x * 0.1, b[1] + (up ? -len : len * 0.85), b[2] + (up ? 0.003 : 0.006), -1);
+      if (up) { m.tri(A, B, D); m.tri(B, C, D); m.tri(C, A, D); } else { m.tri(B, A, D); m.tri(C, B, D); m.tri(A, C, D); }
+    }
+  }
+  // aerofoil-section fin: leading edge F(s) and trailing edge R(s) from root (s=0) to tip (s=1), thick along nrm
+  const wing = (F, R, nrm, th, NSp = 16, NC = 10) => {
+    const up = [];
+    for (let i = 0; i <= NSp; i++) {
+      const s = i / NSp, f = F(s), r = R(s), row = [];
+      for (let j = 0; j <= NC; j++) { const c = j / NC, cc = c * c * (3 - 2 * c) * 0.35 + c * 0.65, t = th * (sqrt(cc) * (1 - cc) / 0.385) * (1 - s * 0.88); row.push([mix(f[0], r[0], cc), mix(f[1], r[1], cc), mix(f[2], r[2], cc), t]); }
+      up.push(row);
+    }
+    const id = [[], []];
+    for (let g = 0; g < 2; g++) for (let i = 0; i <= NSp; i++) {
+      id[g].push(up[i].map((q, j) => (g && (j === 0 || j === NC || i === NSp)) ? id[0][i][j] : m.v(q[0] + nrm[0] * q[3] * (g ? -1 : 1), q[1] + nrm[1] * q[3] * (g ? -1 : 1), q[2] + nrm[2] * q[3] * (g ? -1 : 1), 0)));
+    }
+    const tri3 = (a, b, c, d) => {
+      const P = m.p, ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2], vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+      return (uy * vz - uz * vy) * d[0] + (uz * vx - ux * vz) * d[1] + (ux * vy - uy * vx) * d[2] >= 0;
+    };
+    for (let g = 0; g < 2; g++) for (let i = 0; i < NSp; i++) for (let j = 0; j < NC; j++) {
+      const a = id[g][i][j], b = id[g][i + 1][j], c = id[g][i + 1][j + 1], d = id[g][i][j + 1], dir = g ? [-nrm[0], -nrm[1], -nrm[2]] : nrm;
+      for (const [p, q, r] of [[a, b, c], [a, c, d]]) if (p !== q && q !== r && p !== r) { if (tri3(p, q, r, dir)) m.tri(p, q, r); else m.tri(p, r, q); }
+    }
+  };
+  const X = [1, 0, 0], Y = [0, 1, 0];
+  wing((s) => [0, 0.17 + 0.46 * s, 0.30 - 0.50 * pow(s, 1.1)], (s) => [0, 0.16 + 0.45 * s, -0.12 - 0.08 * pow(s, 2.5)], X, 0.022, 20, 12);        // first dorsal
+  wing((s) => [0, 0.1 + 0.12 * s, -0.55 - 0.15 * s], (s) => [0, 0.095 + 0.11 * s, -0.7 - 0.05 * s], X, 0.008, 8, 8);                           // second dorsal
+  wing((s) => [0, -0.1 - 0.12 * s, -0.54 - 0.14 * s], (s) => [0, -0.095 - 0.11 * s, -0.69 - 0.04 * s], X, 0.008, 8, 8);                        // anal
+  wing((s) => [0, 0.045 + 0.42 * s, -0.93 - 0.42 * pow(s, 1.1)], (s) => [0, 0.04 + 0.41 * s, -1.2 - 0.2 * pow(s, 1.6)], X, 0.018, 20, 12);    // tail, upper lobe
+  wing((s) => [0, 0.045 - 0.3 * s, -0.93 - 0.22 * s], (s) => [0, 0.03 - 0.3 * s, -1.15 - 0.05 * pow(s, 1.7)], X, 0.014, 14, 12);               // tail, lower lobe
+  for (const sg of [-1, 1]) {
+    wing((s) => [sg * (0.16 + 0.5 * s), -0.14 - 0.28 * s, 0.34 - 0.5 * pow(s, 1.2)], (s) => [sg * (0.17 + 0.53 * s), -0.12 - 0.31 * s, 0.04 - 0.22 * s * s], Y, 0.016, 20, 12); // pectorals
+    wing((s) => [sg * (0.07 + 0.17 * s), -0.15 - 0.07 * s, -0.3 - 0.1 * s], (s) => [sg * (0.075 + 0.17 * s), -0.14 - 0.07 * s, -0.46 - 0.04 * s], Y, 0.008, 8, 8);  // pelvics
   }
   return m;
 }

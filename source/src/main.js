@@ -45,11 +45,11 @@ const tShadow = tex(SHADOW, SHADOW, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BIN
 const tDummy = tex(1, 1, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING);
 const tWater = tex(WATER, WATER, HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { mips: 5 });
 const tDetail = tex(1024, 1024, 'rgba8unorm', TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { mips: 11 });
-const tVol = tex(NX / 2, NY / 2, 'rg8unorm', TU.TEXTURE_BINDING | TU.COPY_DST, { d: NZ / 2 });
+const tVol = tex(NX / 2, NY / 2, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST, { d: NZ / 2 });
 const tMap = tex(512, 512, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST);
 
-const UB = new Float32Array(60), UBS = new Float32Array(60);
-const ubo = device.createBuffer({ size: 240, usage: BU.UNIFORM | BU.COPY_DST }), uboS = device.createBuffer({ size: 240, usage: BU.UNIFORM | BU.COPY_DST });
+const UB = new Float32Array(64), UBS = new Float32Array(64);
+const ubo = device.createBuffer({ size: 256, usage: BU.UNIFORM | BU.COPY_DST }), uboS = device.createBuffer({ size: 256, usage: BU.UNIFORM | BU.COPY_DST });
 const WT = new Float32Array(4), uboW = device.createBuffer({ size: 16, usage: BU.UNIFORM | BU.COPY_DST });
 
 const VF = SS.VERTEX | SS.FRAGMENT;
@@ -104,7 +104,8 @@ const pLeafS = scenePipe(mLeaf, 'vs', 'fs', [ibLeaf], { strip: true, constants: 
 const pLeafF = scenePipe(mLeaf, 'vs', 'fs', [ibLeaf], { strip: true, constants: { ROWS: 3 } });
 const pFish = scenePipe(mAnim, 'vsFish', 'fsFish', [vbSolid, ibAnim]);
 const pManta = scenePipe(mAnim, 'vsManta', 'fsManta', [vbSolid, ibAnim]);
-const pSurf = scenePipe(mSurf, 'vs', 'fs', [], { strip: true }), pBack = scenePipe(mSurf, 'vsB', 'fsB', [], { strip: true });
+const pShark = scenePipe(mAnim, 'vsShark', 'fsShark', [vbSolid, ibAnim]);
+const pSurf = scenePipe(mSurf, 'vs', 'fs', [], { strip: true, blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } }), pBack = scenePipe(mSurf, 'vsB', 'fsB', [], { strip: true });
 const pBub = scenePipe(mSpr, 'vsBub', 'fsBub', [ibBub], { strip: true, blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } });
 const ADD = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
 const pSnow = scenePipe(mSpr, 'vsSnow', 'fsSnow', [ibSnow], { strip: true, blend: ADD });
@@ -163,6 +164,14 @@ let D;
   await br.mapAsync(GPUMapMode.READ);
   D = new Float32Array(br.getMappedRange().slice(0));
   br.unmap(); br.destroy(); bd.destroy();
+  // the walls around the world get a natural crest: its height wanders with noise (smoothly, never a flat plateau), so the
+  // ring breaks up into rocky islets and low reefs with gaps of open sea between them
+  for (let z = 0; z < NZ; z++) for (let x = 0; x < NX; x++) {
+    const wx = OX + x * VS, wz = OZ + z * VS, w = sstep(136, 152, hypot(wx, wz));
+    if (!w) continue;
+    const cap = -5 + 11 * fbm(wx * 0.035, 5, wz * 0.035, 4) + 2.2 * (fbm(wx * 0.17, 9, wz * 0.17, 3) - 0.5);
+    for (let y = 0; y < NY; y++) { const i = x + NX * (y + NY * z), c = cap - (OY + y * VS) + (1 - w) * 60; if (c < D[i]) D[i] = c; }
+  }
   // rock connected to the seabed: each column's unbroken run up from the bottom is, and the rock above a gap
   // (overhangs, specks) is when it touches rock that is. What never connects is a speck of noise floating in
   // the water (surface nets would make it a small box), so it becomes water
@@ -177,7 +186,7 @@ const CO = 52, CN = 102, CI = new Uint16Array(CN * CN * NY / 4);
 let CG = new Int8Array(64 * 65534);
 {
   let n = 0;
-  for (let bz = 0; bz < CN; bz++) for (let by = 1; by < NY / 4 - 1; by++) for (let bx = 0; bx < CN; bx++) {
+  for (let bz = 0; bz < CN; bz++) for (let by = 1; by < NY / 4; by++) for (let bx = 0; bx < CN; bx++) {
     if (hypot(bx - CN / 2 + 0.5, bz - CN / 2 + 0.5) > 52) continue; // more than 156 m out: never reached
     let lo = 127, hi = -127;
     for (let z = 0; z < 4; z++) for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
@@ -273,14 +282,14 @@ D = Wd.gy = T.smp = null; // with gy goes the generator's working memory (about 
 
 await say('Building set pieces…', 0.94, 1200);
 // mesh ids: 0-3 boulders, 4-6 sponges, 7-8 coral, 9 tube sponge, 10 whale fluke, 11 ship, 12 manta, 13 fish,
-// 14-20 rock chunks + pebbles, 21-22 coral LOD, 23-25 far LOD of the large rock chunks
+// 14-20 rock chunks + pebbles, 21-22 coral LOD, 23-25 far LOD of the large rock chunks, 26 shark
 const meshes = [meshChunk(1, 3), meshChunk(7, 3), meshChunk(13, 3), meshChunk(22, 3),
   meshLathe([[0, 0, 0.5], [0.34, 0, 0.6], [0.5, 0.2, 0.85], [0.6, 0.6, 1], [0.55, 0.95, 1], [0.47, 1.08, 1], [0.38, 1.1, 0.9], [0.3, 1.0, 0.45], [0.26, 0.6, 0.15], [0, 0.35, 0.05]], 18, 0.3, 9),
   meshLathe([[0, 0, 0.5], [0.2, 0, 0.6], [0.26, 0.5, 0.85], [0.4, 1.25, 1], [0.4, 1.42, 1], [0.33, 1.48, 0.9], [0.26, 1.38, 0.4], [0.18, 0.8, 0.12], [0, 0.5, 0.05]], 16, 0.35, 8),
   meshLathe([[0, 0, 0.5], [0.5, 0, 0.7], [0.72, 0.18, 1], [0.74, 0.38, 1], [0.62, 0.5, 0.9], [0.48, 0.42, 0.45], [0.4, 0.2, 0.15], [0, 0.14, 0.06]], 18, 0.25, 10),
   meshCoral(0), meshCoral(1), meshTubes()].map((m) => m.build());
 meshes.push(meshFluke(), meshShip().build(), meshManta().build(), meshFish().build(),
-  meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build());
+  meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build());
 let nV = 0, nI = 0;
 for (const m of meshes) { m.v0 = nV; m.i0 = nI; nV += m.nv; nI += m.ib.length; }
 const allV = new Uint8Array(nV * 16), allI = new Uint32Array(nI);
@@ -292,11 +301,32 @@ const solidData = new Float32Array((nSolid + 1) * 12); solidData.set(Wd.solids.d
 const ibSolids = buf(solidData, BU.VERTEX);
 const ibChunk = Wd.chunks.map((c) => buf(c.data, BU.VERTEX)), ibProp = Wd.props.map((c) => buf(c.data, BU.VERTEX));
 const ibBig = buf(new Uint8Array(Wd.big.buf), BU.VERTEX), ibBigF = buf(new Uint8Array(Wd.bigF.buf), BU.VERTEX), ibSmall = buf(new Uint8Array(Wd.small.buf), BU.VERTEX);
-const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX);
+const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibShark = buf(Wd.sharks, BU.VERTEX), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX);
 const ibGl = buf(Wd.glints, BU.VERTEX), nGl = Wd.glints.length / 8;
-const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4;
-const MANTA = meshes[12], FISH = meshes[13];
-Q.writeTexture({ texture: tVol }, Wd.volD, { bytesPerRow: NX, rowsPerImage: NY / 2 }, [NX / 2, NY / 2, NZ / 2]);
+const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4;
+const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26];
+// the map circle: the arena picture from the world generator, with viewpoints 1-6, the player and where they look
+const mmBg = document.createElement('canvas'); mmBg.width = mmBg.height = 128; mmBg.getContext('2d').putImageData(new ImageData(Wd.mapImg, 128, 128), 0, 0);
+const mm = $('mm'), mx = mm.getContext('2d'); let mapT = 1e9;
+mm.width = mm.height = Math.round(150 * min(devicePixelRatio || 1, 2));
+function drawMap() {
+  const S = mm.width, u = S / 320, px = (F[CX] + 160) * u, pz = (F[CZ] + 160) * u, a = F[YAW];
+  mx.clearRect(0, 0, S, S); mx.save(); mx.beginPath(); mx.arc(S / 2, S / 2, S / 2, 0, 6.2832); mx.clip();
+  mx.imageSmoothingQuality = 'high'; mx.drawImage(mmBg, 0, 0, S, S);
+  mx.font = `${S * 0.06 | 0}px system-ui, sans-serif`; mx.textAlign = 'center'; mx.textBaseline = 'middle';
+  POSES.forEach((p, i) => { const x = (p[0] + 160) * u, z = (p[2] + 160) * u; mx.fillStyle = '#03222dcc'; mx.beginPath(); mx.arc(x, z, S * 0.032, 0, 6.2832); mx.fill(); mx.fillStyle = '#e8fbff'; mx.fillText(i + 1, x, z + 0.5); });
+  // tunnel mouths: an orange dot with the tunnel's letter at each end (you go in at one and have to find the other)
+  for (const t of TUNNELS) for (const e of [t.pts[0], t.pts[t.pts.length - 1]]) {
+    const x = (e[0] + 160) * u, z = (e[2] + 160) * u; mx.fillStyle = '#ff9d3c'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
+    mx.beginPath(); mx.arc(x, z, S * 0.036, 0, 6.2832); mx.fill(); mx.stroke(); mx.fillStyle = '#03222d'; mx.fillText(t.id, x, z + 0.5);
+  }
+  mx.translate(px, pz); mx.rotate(a);
+  mx.fillStyle = '#ffffff30'; mx.beginPath(); mx.moveTo(0, 0); mx.arc(0, 0, S * 0.17, -1.57 - 0.6, -1.57 + 0.6); mx.closePath(); mx.fill(); // what you look at
+  mx.fillStyle = '#ffd34d'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.014; mx.beginPath(); mx.moveTo(0, -S * 0.045); mx.lineTo(S * 0.032, S * 0.032); mx.lineTo(0, S * 0.014); mx.lineTo(-S * 0.032, S * 0.032); mx.closePath(); mx.fill(); mx.stroke();
+  mx.restore();
+  mx.fillStyle = '#e8fbff'; mx.shadowColor = '#000'; mx.shadowBlur = S * 0.03; mx.font = `600 ${S * 0.07 | 0}px system-ui, sans-serif`; mx.fillText(F[CY] > 0 ? 'surface' : (-F[CY] | 0) + ' m', S / 2, S * 0.9);
+}
+Q.writeTexture({ texture: tVol }, Wd.volD, { bytesPerRow: NX * 2, rowsPerImage: NY / 2 }, [NX / 2, NY / 2, NZ / 2]);
 Q.writeTexture({ texture: tMap }, Wd.gm, { bytesPerRow: 2048 }, [512, 512]);
 
 // ---------------------------------------------------------------- one-time bakes: detail texture, shadow map
@@ -389,7 +419,7 @@ if (hasTS) {
 
 // ---------------------------------------------------------------- frame
 let hud = false;
-let kf = 0, kb = 0, kl = 0, kr = 0, ku = 0, kd = 0, ks = 0, mdx = 0, mdy = 0, lkx = 0, lky = 0, l2x = 0, l2y = 0, hN = 0, hMax = 0, hMin = 1e9, hPer = 1e9, hLate = 0, hTot = 0, tId = -1, tN = 0, tx0 = 0, ty0 = 0, tx = 0, ty = 0;
+let kf = 0, kb = 0, kl = 0, kr = 0, ku = 0, kd = 0, ks = 0, ka = 0, lastTap = 0, lastKey = '', mdx = 0, mdy = 0, lkx = 0, lky = 0, l2x = 0, l2y = 0, hN = 0, hMax = 0, hMin = 1e9, hPer = 1e9, hLate = 0, hTot = 0, tId = -1, tN = 0, tx0 = 0, ty0 = 0, tx = 0, ty = 0;
 const TANH = 0.6, NEAR = 0.1, EXPO = 0.62, RAYS = 0.54;
 const submitList = [null];
 const rowOrd = new Uint8Array(CELLS);
@@ -422,6 +452,7 @@ function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
     }
   }
 }
+let wetV = 0, wetT = 0, wasAbove = false, torchV = 0, torchOn = false, torchT = 0;
 function render() {
   // camera basis (right vector is horizontal)
   const cx = F[CX], cy = F[CY], cz = F[CZ], pitch = F[PIT], yaw = F[YAW];
@@ -440,7 +471,16 @@ function render() {
   const zx = cx - PURPLE[0], zz = cz - PURPLE[1]; let zt = (44 - sqrt(zx * zx + zz * zz)) / 18; zt = zt < 0 ? 0 : zt > 1 ? 1 : zt;
   m[51] = zt * zt * (3 - 2 * zt);
   let ek = (-cy - 8) / 26; ek = ek < 0 ? 0 : ek > 1 ? 1 : ek;
-  m[56] = EXPO * (0.6 + 0.4 * ek); m[57] = RAYS; m[58] = det;
+  // the lens after a trip through the surface: +1 just came out (drops, drying), -1 just went in (bubbles), fading to 0
+  { const ab = cy > 0, dtw = F[TIME] - wetT; wetT = F[TIME];
+    if (ab !== wasAbove) { wetV = ab ? 1 : -1; wasAbove = ab; }
+    wetV += (wetV > 0 ? -dtw / 5.5 : dtw / 1.8); if (wetV * (ab ? 1 : -1) < 0) wetV = 0; m[59] = wetV; }
+  // the torch: inside a tunnel (dark at the camera) it switches itself on, with a click, and off again on the way out
+  { const dkc = tunnelDark(cx, cy, cz), dtt = F[TIME] - torchT; torchT = F[TIME];
+    torchV += ((dkc > 0.3 ? 1 : 0) - torchV) * (1 - exp(-dtt * 7));
+    if ((torchV > 0.5) !== torchOn) { torchOn = torchV > 0.5; torchClick(torchOn); }
+    m[60] = torchV; m[61] = dkc; }
+  m[56] = EXPO * (0.6 + 0.4 * ek) * (1 + 0.3 * (cy < 0 ? 0 : cy > 1 ? 1 : cy)); m[57] = RAYS; m[58] = det;
   Q.writeBuffer(ubo, 0, UB);
   WT[0] = F[TIME]; Q.writeBuffer(uboW, 0, WT);
 
@@ -471,14 +511,15 @@ function render() {
     if (lod) drawCells(r, Wd.props[i].start, Wd.props[i].lo, Wd.props[i].hi, 3, meshes[18 + i], 0, 6, 110);
   }
   r.setPipeline(pManta); r.setVertexBuffer(1, ibManta); r.drawIndexed(MANTA.ib.length, nManta, MANTA.i0, MANTA.v0, 0);
+  r.setPipeline(pShark); r.setVertexBuffer(1, ibShark); r.drawIndexed(SHARK.ib.length, nShark, SHARK.i0, SHARK.v0, 0);
   r.setPipeline(pFish); r.setVertexBuffer(1, ibFish); r.drawIndexed(FISH.ib.length, nFish, FISH.i0, FISH.v0, 0);
   // kelp and plants: 9-row blades up close, 5 rows mid-range, a decimated set far away
   r.setPipeline(pLeaf); r.setVertexBuffer(0, ibBig); drawCells(r, Wd.big.start, Wd.big.lo, Wd.big.hi, 5, false, 18, 0, 24);
   r.setPipeline(pLeaf5); drawCells(r, Wd.big.start, Wd.big.lo, Wd.big.hi, 5, false, 10, 24, 58);
   r.setPipeline(pLeafF); r.setVertexBuffer(0, ibBigF); drawCells(r, Wd.bigF.start, Wd.bigF.lo, Wd.bigF.hi, 5, false, 6, 58, 150);
   r.setPipeline(pLeafS); r.setVertexBuffer(0, ibSmall); drawCells(r, Wd.small.start, Wd.small.lo, Wd.small.hi, 1.5, false, 6, 0, 70);
-  r.setPipeline(pSurf); r.draw(4);
   r.setPipeline(pBack); r.draw(4);
+  r.setPipeline(pSurf); r.draw(4);
   r.setPipeline(pBub); r.setVertexBuffer(0, ibBubbles); r.draw(4, nBub);
   r.setPipeline(pGl); r.setVertexBuffer(0, ibGl); r.draw(4, nGl);
   r.setPipeline(pSnow); r.setVertexBuffer(0, ibSnowB); r.draw(4, nSnow);
@@ -512,6 +553,27 @@ function sd(j) {
 // Moves the camera by F[MX..MZ] in steps shorter than its radius CR (so it can't pass through thin rock), pushing it
 // back out after each step and dropping velocity into the rock, so it slides along.
 const CR = 0.5;
+// Sharks and manta rays are solid too. Their motion is a formula run on the GPU (vsShark, vsManta), so the same formula runs
+// here to find where each one is, and each body is a few ellipsoids in its own frame (centre, half-sizes, in body lengths).
+// push the camera out of one body's ellipsoids and drop its velocity into them, so it slides along
+function bodyPush(a, manta) {
+  const E = manta ? MANTA_E : SHARK_E, t = F[TIME];
+  for (let o = 0; o < a.length; o += 8) {
+    const sz = a[o + 6]; if (hypot(F[CX] - a[o], F[CZ] - a[o + 2]) > a[o + 3] + sz * 3 + 6) continue; // far from its whole orbit
+    bodyPose(a, o, t, manta);
+    for (const e of E) {
+      const dx = F[CX] - BP[0], dy = F[CY] - BP[1], dz = F[CZ] - BP[2], r = CR / sz;
+      const lx = (dx * BP[3] + dy * BP[4] + dz * BP[5]) / sz - e[0], ly = (dx * BP[6] + dy * BP[7] + dz * BP[8]) / sz - e[1], lz = (dx * BP[9] + dy * BP[10] + dz * BP[11]) / sz - e[2];
+      const ax = e[3] + r, ay = e[4] + r, az = e[5] + r, ux = lx / ax, uy = ly / ay, uz = lz / az, q = ux * ux + uy * uy + uz * uz;
+      if (q >= 1 || q < 1e-9) continue;
+      const k = 1 / sqrt(q) - 1, px = ux * k * ax * sz, py = uy * k * ay * sz, pz = uz * k * az * sz; // to the surface, in body axes
+      const wx = BP[3] * px + BP[6] * py + BP[9] * pz, wy = BP[4] * px + BP[7] * py + BP[10] * pz, wz = BP[5] * px + BP[8] * py + BP[11] * pz;
+      F[CX] += wx; F[CY] += wy; F[CZ] += wz;
+      const wl = hypot(wx, wy, wz) || 1, vn = (F[VX] * wx + F[VY] * wy + F[VZ] * wz) / wl;
+      if (vn < 0) { F[VX] -= vn * wx / wl; F[VY] -= vn * wy / wl; F[VZ] -= vn * wz / wl; }
+    }
+  }
+}
 function collide() {
   const n = floor(sqrt(F[MX] * F[MX] + F[MY] * F[MY] + F[MZ] * F[MZ]) / 0.4) + 1;
   for (let i = 0; i < n; i++) {
@@ -525,6 +587,7 @@ function collide() {
       F[CX] -= gx * s; F[CY] -= gy * s; F[CZ] -= gz * s;
       if (vn > 0) { F[VX] -= gx * vn; F[VY] -= gy * vn; F[VZ] -= gz * vn; }
     }
+    bodyPush(Wd.sharks, 0); bodyPush(Wd.mantas, 1);
   }
 }
 
@@ -563,15 +626,22 @@ function frame(now) {
     const ax = lkx * kq, ay = lky * kq; lkx -= ax; lky -= ay; l2x += ax; l2y += ay;
     const dyw = l2x * kq, dpt = l2y * kq; l2x -= dyw; l2y -= dpt;
     const yaw = F[YAW] + dyw; let pitch = F[PIT] - dpt; pitch = pitch < -1.55 ? -1.55 : pitch > 1.55 ? 1.55 : pitch;
-    const sp = ks || tN > 1 ? 26 : 7, k = 1 - exp(-dt * 4.5), mf = tId >= 0 ? 0.7 : kf - kb, mr = kr - kl, mu = ku - kd, cp = cos(pitch), sy = sin(yaw), cw = cos(yaw);
-    const vx = F[VX] + ((sy * cp * mf + cw * mr) * sp - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * sp - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * sp - F[VZ]) * k;
-    let x = F[CX] + vx * dt, y = F[CY] + vy * dt, z = F[CZ] + vz * dt;
+    const sp = ks || ka || tN > 1 ? 26 : 7, k = 1 - exp(-dt * 4.5), mf = tId >= 0 ? 0.7 : kf - kb, mr = kr - kl, mu = ku - kd, cp = cos(pitch), sy = sin(yaw), cw = cos(yaw);
+    // underwater current: one steady flow that pushes you gently away (~0.45 m/s) while you also bob up and down (about
+    // 0.4 m, every 6 s), as if floating. Near the edge of the arena the flow turns back toward the middle.
+    const tc = F[TIME], cu = F[CY] < -0.4 ? (F[CY] < -1.5 ? 1 : (-F[CY] - 0.4) / 1.1) : 0, cr = sqrt(F[CX] * F[CX] + F[CZ] * F[CZ]), cw2 = cr > 105 ? (cr > 135 ? 1 : (cr - 105) / 30) : 0, cs = 0.45 * (1 + 0.15 * sin(tc * 0.09));
+    const cvx = (0.8 * (1 - cw2) - F[CX] / (cr + 1) * cw2) * cs * cu, cvz = (0.6 * (1 - cw2) - F[CZ] / (cr + 1) * cw2) * cs * cu;
+    const cvy = (0.42 * sin(tc * 1.05) + 0.1 * sin(tc * 2.3 + 1)) * cu;
+    const vx = F[VX] + ((sy * cp * mf + cw * mr) * sp + cvx - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * sp + cvy - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * sp + cvz - F[VZ]) * k;
+    const gr = F[CY] > 0.3 ? 6 * dt : 0; // above the water you slowly sink back
+    let x = F[CX] + vx * dt, y = F[CY] + (vy - gr) * dt, z = F[CZ] + vz * dt;
     const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
-    y = y < -52 ? -52 : y > -1.2 ? -1.2 : y;
-    F[YAW] = yaw; F[PIT] = pitch; F[VX] = vx; F[VY] = vy; F[VZ] = vz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
+    y = y < -52 ? -52 : y > 3.4 ? 3.4 : y;
+    F[YAW] = yaw; F[PIT] = pitch; F[VX] = vx; F[VY] = vy - gr; F[VZ] = vz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
     collide();
   }
   render();
+  if ((mapT += dtr) > 50) { mapT = 0; if (!menu && !mm.style.visibility) drawMap(); }
   if (hud) {
     hN++; if (dtr > hMax) hMax = dtr; if (dtr < hMin) hMin = dtr; if (dtr > hPer * 1.5) { hLate++; hTot++; }
     F[HUDT] += dtr / 1000;
@@ -584,18 +654,27 @@ const key = (e, v) => {
   switch (e.code) {
     case 'KeyW': kf = v; break; case 'KeyS': kb = v; break; case 'KeyA': kl = v; break; case 'KeyD': kr = v; break;
     case 'KeyE': ku = v; break; case 'KeyQ': kd = v; break; case 'ShiftLeft': case 'ShiftRight': ks = v; break;
+    // the arrow keys swim too; tapping one twice quickly and holding it on the second tap is a sprint, like Shift
+    case 'ArrowUp': case 'ArrowDown': case 'ArrowLeft': case 'ArrowRight': {
+      const a = e.code === 'ArrowUp' ? 0 : e.code === 'ArrowDown' ? 1 : e.code === 'ArrowLeft' ? 2 : 3;
+      if (a === 0) kf = v; else if (a === 1) kb = v; else if (a === 2) kl = v; else kr = v;
+      if (v && !e.repeat) { ka = e.timeStamp - lastTap < 350 && lastKey === e.code ? 1 : 0; lastTap = e.timeStamp; lastKey = e.code; }
+      if (!v && lastKey === e.code) ka = 0;
+      break;
+    }
     default: if (v && !e.repeat) {
       if (e.code === 'KeyH') { hud = !hud; hTot = 0; hPer = 1e9; info.textContent = ''; }
       else if (e.code === 'KeyM') mute();
+      else if (e.code === 'KeyN') mm.style.visibility = mm.style.visibility ? '' : 'hidden';
       else if (e.code === 'Escape') ui(true);
       else if (e.code >= 'Digit1' && e.code <= 'Digit6') lookAt(...POSES[e.code.charCodeAt(5) - 49]);
     }
   }
 };
 // behind the menu only the stats and mute keys work
-addEventListener('keydown', (e) => { if (menu && e.code !== 'KeyH' && e.code !== 'KeyM') return; sound(); key(e, 1); });
+addEventListener('keydown', (e) => { if (menu && e.code !== 'KeyH' && e.code !== 'KeyM') return; if (e.code.startsWith('Arrow')) e.preventDefault(); sound(); key(e, 1); });
 addEventListener('keyup', (e) => key(e, 0));
-const release = () => { kf = kb = kl = kr = ku = kd = ks = 0; tId = -1; tN = 0; };
+const release = () => { kf = kb = kl = kr = ku = kd = ks = ka = 0; tId = -1; tN = 0; };
 const capture = () => { sound(); const p = canvas.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => canvas.requestPointerLock()).catch(() => 0); };
 canvas.addEventListener('click', capture);
 addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas) { mdx += e.movementX; mdy += e.movementY; } });
