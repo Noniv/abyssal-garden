@@ -596,7 +596,7 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   o.lt = i.n.w; // shark: mouth / gill depth (0..1), -1 on teeth
   return o;
 }
-@fragment fn fsShark(i: VO) -> @location(0) vec4f {
+fn sharkShade(i: VO, pup: bool) -> vec4f {
   let dist = length(i.wp - g.cam.xyz);
   let ca = caus(i.wp, dist);
   let tx = textureSample(tD, sR, i.op.xz * 1.3 + i.sd);
@@ -609,12 +609,21 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   // countershading: slate grey above, white below, with a ragged boundary that dips towards the tail
   let edge = .12 + .25 * (tx.a - .5) + .12 * sin(p.z * 9. + ty.b * 3.) - .15 * ss(-.3, -.9, p.z);
   let top = ss(edge - .12, edge + .12, nn.y + (ty.a - .5) * .15);
-  let back = mix(vec3f(.16, .185, .21), vec3f(.30, .33, .35), tx.b * .7 + ty.r * .3);
+  // (blacktip reef shark: brownish grey above, white below, a pale stripe along the flank)
+  let back = select(mix(vec3f(.16, .185, .21), vec3f(.30, .33, .35), tx.b * .7 + ty.r * .3), mix(vec3f(.24, .22, .185), vec3f(.37, .34, .29), tx.b * .7 + ty.r * .3), pup);
   let belly = mix(vec3f(.80, .82, .82), vec3f(.62, .65, .68), ty.b * .4);
   var alb = mix(belly, back, top);
   // fins: pale undersides with dark tips and trailing edges
-  let tipD = max(ss(.42, .56, p.y) * step(abs(p.z), .5), max(ss(.5, .7, ax) * step(p.y, -.2), ss(-1.15, -1.3, p.z) * .8));
-  alb = mix(alb, vec3f(.05, .055, .07), tipD * (.5 + .5 * ss(0.2, 0.9, ty.a)));
+  // (the blacktip reef sharks: the first dorsal's tip jet black over a white band, black tips on the other fins too)
+  let tipD = select(max(ss(.42, .56, p.y) * step(abs(p.z), .5), max(ss(.5, .7, ax) * step(p.y, -.2), ss(-1.15, -1.3, p.z) * .8)), ss(.44, .5, p.y) * step(abs(p.z), .5), pup);
+  alb = mix(alb, select(vec3f(.05, .055, .07), vec3f(.008, .008, .01), pup), tipD * select(.5 + .5 * ss(0.2, 0.9, ty.a), 1., pup));
+  if (pup) {
+    let band = ss(.3, .35, p.y) * (1. - ss(.42, .45, p.y)) * step(abs(p.z), .5);                       // the white band under the black dorsal tip
+    alb = mix(alb, vec3f(.9, .9, .88), band);
+    let tips = max(ss(.4, .5, ax) * step(p.y, -.1), ss(-1.28, -1.4, p.z));                            // pectoral / pelvic tips, the tail's lobes
+    alb = mix(alb, vec3f(.01, .01, .012), tips);
+    alb = mix(alb, vec3f(.86, .86, .82), ss(.2, .0, abs(nn.y - .05)) * ss(-.9, -.2, p.z) * ss(.9, .5, p.z) * .35); // the pale flank stripe
+  }
   // eyes, the inside of the mouth and gill slits (shaped in the mesh; i.lt says how deep), teeth
   alb *= 1. - .93 * ss(.026, .014, length(vec3f(ax - .126, p.y - .03, p.z - .8)));
   alb = mix(alb, vec3f(.055, .04, .042), sat(i.lt) * .85);
@@ -623,7 +632,140 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   var c = alb * (E * sat(dot(n, L)) * (.3 + ca) + amb(i.wp, vec3f(n.x, abs(n.y) * .55 + .25, n.z), vv.g, z) * 1.1 + side(i.wp, n, 1., z) * .8);
   c += E * pow(sat(dot(n, normalize(V + L))), 40.) * .4 * (.3 + ca) * (1. - top * .4);
   let sky = amb(i.wp, vec3f(0., 1., 0.), vv.g, z);
-  c += alb * sky * ca * .4 * (1. - top) + sky * pow(1. - sat(dot(n, V)), 3.) * .3;
+  c += alb * sky * ca * .4 * (1. - top) + sky * pow(1. - sat(dot(n, V)), 3.) * .3 * (.12 + .88 * sat(dot(alb, vec3f(.33)) * 2.5)); // (the rim light must not lift black parts)
+  return fin(fog(c, i.wp, z));
+}
+@fragment fn fsShark(i: VO) -> @location(0) vec4f { return sharkShade(i, false); }
+@fragment fn fsPup(i: VO) -> @location(0) vec4f { return sharkShade(i, true); }
+// blacktip reef sharks that swim along the sea floor: the CPU steers them, an instance is x, y, z, yaw | pitch, size, tail phase,
+// turn rate, plus four sideways offsets (metres) of the body at 0.4, 0.8, 1.2 and 1.6 body lengths behind the middle: the body
+// follows the trail the head left, so a turn bends it in an S: nose first, the rest after
+struct VP { @location(0) p: vec3f, @location(1) n: vec4f, @location(2) a: vec4f, @location(3) b: vec4f, @location(4) c: vec4f };
+fn latAt(u: f32, c: vec4f) -> f32 { // sideways offset at u body lengths behind the middle (a smooth curve through the four stations)
+  if (u <= 0.) { return 0.; }
+  if (u >= 1.6) { return c.w; }
+  let v = array<f32, 6>(0., 0., c.x, c.y, c.z, c.w);
+  let s = u / .4; let k = i32(floor(s)); let t = s - f32(k);
+  let p0 = v[k]; let p1 = v[k + 1]; let p2 = v[k + 2]; let p3 = v[min(k + 3, 5)];
+  return .5 * (2. * p1 + (p2 - p0) * t + (2. * p0 - 5. * p1 + 4. * p2 - p3) * t * t + (3. * p1 - p0 - 3. * p2 + p3) * t * t * t);
+}
+@vertex fn vsPup(i: VP) -> VO {
+  var o: VO;
+  let sz = i.b.y; let cy = cos(i.a.w); let sy = sin(i.a.w); let cp = cos(i.b.x); let sp = sin(i.b.x);
+  let T = vec3f(sy * cp, sp, cy * cp); var S = vec3f(cy, 0., -sy); var Up = vec3f(-sy * sp, cp, -cy * sp);
+  let bank = -clamp(i.b.w, -1., 1.) * .15;
+  let S2 = S * cos(bank) + Up * sin(bank); Up = Up * cos(bank) - S * sin(bank); S = S2;
+  var l = i.p;
+  let q = clamp(.62 - l.z * .5, 0., 1.5); let amp = .006 + .04 * q * q; // a slight tail beat, small even at the tip
+  let ph = i.b.z - l.z * 2.;
+  l.x += amp * sin(ph);
+  let lat = latAt(-l.z, i.c) / sz;                     // the body bends along the path the head took
+  l.x += lat;
+  let dlat = (latAt(-(l.z + .03), i.c) - latAt(-(l.z - .03), i.c)) / (.06 * sz);
+  let dx = -.04 * q * sin(ph) - 2. * amp * cos(ph) + dlat;
+  let th = atan(dx);
+  let nl = vec3f(i.n.x * cos(th) + i.n.z * sin(th), i.n.y, -i.n.x * sin(th) + i.n.z * cos(th));
+  let w = i.a.xyz + (S * l.x + Up * l.y + T * l.z) * sz;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = S * nl.x + Up * nl.y + T * nl.z; o.op = i.p; o.sd = .37;
+  o.lt = i.n.w;
+  return o;
+}
+// nurse sharks asleep on the sea floor: an instance is x, y, z, yaw | pitch, size, seed, tail bend. Almost still: the body
+// breathes (the head region swells a little, slowly), the paddle fins ripple at their edges, the tail drifts
+struct VN { @location(0) p: vec3f, @location(1) n: vec4f, @location(2) a: vec4f, @location(3) b: vec4f, @location(4) c: vec4f, @location(5) d: vec4f };
+const NZK = array<f32, 8>(1.12, .75, .3, -.15, -.6, -1.1, -1.6, -2.2);
+// how far the ground is above / below the straight rest pose at body position z (the eight values stored with each shark)
+fn nurseOff(z: f32, c: vec4f, d: vec4f) -> f32 {
+  let v = array<f32, 8>(c.x, c.y, c.z, c.w, d.x, d.y, d.z, d.w);
+  if (z >= NZK[0]) { return v[0]; }
+  for (var k = 0; k < 7; k++) { if (z >= NZK[k + 1]) { let t = (NZK[k] - z) / (NZK[k] - NZK[k + 1]); return mix(v[k], v[k + 1], t * t * (3. - 2. * t)); } }
+  return v[7];
+}
+@vertex fn vsNurse(i: VN) -> VO {
+  var o: VO;
+  let t = g.cam.w; let sz = i.b.y; let sd = i.b.z; let ph = sd * 40.; let A = i.b.w;
+  let cy = cos(i.a.w); let sy = sin(i.a.w); let cp = cos(i.b.x); let sp = sin(i.b.x);
+  let T = vec3f(sy * cp, sp, cy * cp); let S = vec3f(cy, 0., -sy); let Up = vec3f(-sy * sp, cp, -cy * sp);
+  var l = i.p;
+  l.y += nurseOff(l.z, i.c, i.d) / sz; // lie on the ground along the whole body
+  // the sinuous rest pose: the whole body bends in an S (same curve the placement and the collision use)
+  let z0 = l.z; let bend = A * sin((1. - z0) * 1.55) * (.15 + .85 * ss(.9, -.4, z0));
+  let z1 = z0 + .02; let z2 = z0 - .02;
+  let dbend = (A * sin((1. - z1) * 1.55) * (.15 + .85 * ss(.9, -.4, z1)) - A * sin((1. - z2) * 1.55) * (.15 + .85 * ss(.9, -.4, z2))) / .04;
+  l.x += bend;
+  // gentle life: the pectoral and pelvic fins flap slowly, the dorsals and the tail sway, the head swells as it breathes
+  let pec = ss(.18, .32, abs(l.x - bend)) * step(-.15, l.z) * step(l.z, .62) * step(l.y, -.06);
+  l.y += sin(t * .95 + ph + sign(l.x - bend) * .7) * .17 * max(abs(l.x - bend) - .17, 0.) * pec;
+  let pel = ss(.1, .2, abs(l.x - bend)) * step(-.7, l.z) * step(l.z, -.3) * step(l.y, -.05);
+  l.y += sin(t * 1.1 + ph + 2. + sign(l.x - bend) * .7) * .14 * max(abs(l.x - bend) - .1, 0.) * pel;
+  l.x += sin(t * .8 + ph) * .022 * ss(.1, .4, l.y);
+  let tl = ss(-1.1, -2.3, l.z);
+  l.x += sin(t * .55 + ph) * .1 * tl * tl; l.y += sin(t * .7 + ph + 1.) * .015 * tl;
+  let br = .5 + .5 * sin(t * 1.1 + ph);
+  let hd = ss(.2, .75, l.z) * ss(1., .8, l.z) * (1. - pec);
+  l.y *= 1. + .02 * br * hd;
+  let th = atan(dbend);
+  let nl = vec3f(i.n.x * cos(th) + i.n.z * sin(th), i.n.y, -i.n.x * sin(th) + i.n.z * cos(th));
+  let w = i.a.xyz + (S * l.x + Up * l.y + T * l.z) * sz;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = S * nl.x + Up * nl.y + T * nl.z; o.op = i.p; o.sd = sd;
+  o.lt = i.n.w;
+  return o;
+}
+fn hn3(p: vec3f) -> vec3f { var q = fract(p * vec3f(.1031, .1030, .0973)); q += dot(q, q.yxz + 33.33); return fract((q.xxy + q.yxx) * q.zyx); }
+// irregular dark blotches: jittered 3-D cells, each holding a soft round spot with its own size (dens = share of cells that have one)
+fn spots3(p: vec3f, sc: f32, dens: f32, rmin: f32, rmax: f32) -> f32 {
+  let q = p * sc; let id = floor(q); let f = fract(q) - .5; var m = 0.;
+  for (var x = -1; x <= 1; x++) { for (var y = -1; y <= 1; y++) { for (var z = -1; z <= 1; z++) {
+    let o = vec3f(f32(x), f32(y), f32(z)); let h = hn3(id + o);
+    if (h.x < dens) { let r = mix(rmin, rmax, h.z); m = max(m, ss(r, r * .55, length(f - o - (h.yzx - .5) * .7))); }
+  } } }
+  return m;
+}
+@fragment fn fsNurse(i: VO) -> @location(0) vec4f {
+  let dist = length(i.wp - g.cam.xyz);
+  let ca = caus(i.wp, dist);
+  let p = i.op;
+  let side_ = abs(normalize(i.n).x) > .6; // fins and flanks face sideways: map the skin from the side there
+  let tx = textureSample(tD, sR, select(p.xz, p.zy, side_) * 1.9 + i.sd);
+  let ty = textureSample(tD, sR, p.zy * 4.3 + i.sd * 3.);
+  let V = normalize(g.cam.xyz - i.wp);
+  var nn = normalize(i.n); if (dot(nn, V) < 0.) { nn = -nn; }
+  let n = normalize(nn + (vec3f(tx.r, ty.g, tx.g) - vec3f(.5)) * .16); let L = g.sun.xyz;
+  let z = zone(i.wp); let vv = vol(i.wp);
+  // tawny ochre skin, paler underneath, blotched with dark brown spots (big ones on the back and flanks, fine freckles all over)
+  let top = ss(-.25, .35, normalize(i.n).y + (ty.a - .5) * .25);
+  let sp = i.sd * 17.;
+  let big = spots3(p + sp, 5., .62, .3, .46); let fine = spots3(p + sp + 3., 17., .6, .26, .42);
+  var alb = mix(vec3f(.60, .47, .27), mix(vec3f(.33, .20, .06), vec3f(.43, .27, .09), tx.b), top);
+  alb = mix(alb, vec3f(.15, .075, .03), big * .8 * mix(.3, 1., top));
+  alb = mix(alb, vec3f(.18, .09, .035), fine * .7 * mix(.5, 1., top));
+  alb *= .86 + .28 * ty.b;
+  alb *= vec3f(1. + 2.2 * (1. - exp(-.028 * max(-i.wp.y, 0.))), 1., .85);                              // water has eaten the reds by this depth: keep the skin ochre
+  let skin = vec3f(.4, .255, .09) * vec3f(1. + 2.2 * (1. - exp(-.028 * max(-i.wp.y, 0.))), 1., .85) * (.86 + .28 * ty.b); // the lid is the same tawny skin
+  let eye = step(i.lt, -.5);                                                                       // the eyeballs (aux -1): dark, wet and glossy, with a paler ring
+  // blinking: every 5-11 s (each shark on its own beat) the lid rises over the eye and drops again in about half a second,
+  // now and then twice in a row
+  let per = 5. + 6. * fract(i.sd * 13.7); let bu = fract(g.cam.w / per + fract(i.sd * 7.31));
+  let blink = max(sin(3.14159 * clamp(bu / .05, 0., 1.)), sin(3.14159 * clamp((bu - .08) / .045, 0., 1.)) * step(.5, fract(i.sd * 3.9)));
+  // pale eyeball with a golden iris and a dark pupil looking out and a little forward, shaded by the brow above it
+  let ec = vec3f(select(-.1419, .1419, p.x > 0.), .0404, .965); let eu = normalize(p - ec + vec3f(0., 1e-5, 0.));
+  let gz = dot(eu, normalize(vec3f(select(-.85, .85, p.x > 0.), .45, .3)));
+  var ecol = vec3f(.9, .87, .78) * (.62 + .38 * ss(-.5, .6, eu.y));
+  ecol = mix(ecol, vec3f(.32, .22, .06), ss(.84, .89, gz));
+  ecol = mix(ecol, vec3f(.012, .009, .007), ss(.95, .965, gz));
+  let lidY = mix(-1.15, 1.15, blink);
+  let lid = (1. - ss(lidY - .1, lidY + .1, eu.y)) * step(.001, blink);                              // how much of the eye the lid covers (it rises from below)
+  ecol = mix(ecol, skin, lid);
+  alb = mix(alb, ecol, eye);
+  alb = mix(alb, vec3f(.06, .03, .025), sat(i.lt) * .85);                                                // mouth, gill slits, spiracles
+  // resting on the floor: the underside and the creases are in shadow
+  let gr = mix(.3, 1., ss(-.085, .02, p.y));
+  let nl = normalize(mix(n, normalize(vec3f(n.x * .25, 1., n.z * .25)), lid * eye));
+  let E = sunE(i.wp.y, z) * shadow4(i.wp + n * .3) * gr;
+  var c = alb * (E * sat(dot(nl, L)) * (.3 + ca) * .9 + amb(i.wp, vec3f(nl.x, abs(nl.y) * .55 + .25, nl.z), vv.g, z) * .8 * gr + side(i.wp, nl, 1., z) * .5 * gr);
+  c += E * pow(sat(dot(n, normalize(V + L))), 22.) * .22 * (.3 + ca) * (1. - top * .3);               // a faint wet sheen
+  c += E * pow(sat(dot(n, normalize(V + L))), 120.) * 2.6 * eye * (1. - lid);                           // the glint in each eye (gone while the lid is over it)
+  c += alb * amb(i.wp, vec3f(0., 1., 0.), vv.g, z) * ca * .25 * top * gr;
   return fin(fog(c, i.wp, z));
 }
 @vertex fn vsManta(i: VI) -> VO {

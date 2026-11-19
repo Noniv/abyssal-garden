@@ -105,6 +105,10 @@ const pLeafF = scenePipe(mLeaf, 'vs', 'fs', [ibLeaf], { strip: true, constants: 
 const pFish = scenePipe(mAnim, 'vsFish', 'fsFish', [vbSolid, ibAnim]);
 const pManta = scenePipe(mAnim, 'vsManta', 'fsManta', [vbSolid, ibAnim]);
 const pShark = scenePipe(mAnim, 'vsShark', 'fsShark', [vbSolid, ibAnim]);
+const ibNurseL = { arrayStride: 64, stepMode: 'instance', attributes: [A(2, 0, 'float32x4'), A(3, 16, 'float32x4'), A(4, 32, 'float32x4'), A(5, 48, 'float32x4')] };
+const ibPupBL = { arrayStride: 16, stepMode: 'instance', attributes: [A(4, 0, 'float32x4')] };
+const pPup = scenePipe(mAnim, 'vsPup', 'fsPup', [vbSolid, ibAnim, ibPupBL]);
+const pNurse = scenePipe(mAnim, 'vsNurse', 'fsNurse', [vbSolid, ibNurseL]);
 const pSurf = scenePipe(mSurf, 'vs', 'fs', [], { strip: true, blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } }), pBack = scenePipe(mSurf, 'vsB', 'fsB', [], { strip: true });
 const pBub = scenePipe(mSpr, 'vsBub', 'fsBub', [ibBub], { strip: true, blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } });
 const ADD = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
@@ -282,14 +286,14 @@ D = Wd.gy = T.smp = null; // with gy goes the generator's working memory (about 
 
 await say('Building set pieces…', 0.94, 1200);
 // mesh ids: 0-3 boulders, 4-6 sponges, 7-8 coral, 9 tube sponge, 10 whale fluke, 11 ship, 12 manta, 13 fish,
-// 14-20 rock chunks + pebbles, 21-22 coral LOD, 23-25 far LOD of the large rock chunks, 26 shark
+// 14-20 rock chunks + pebbles, 21-22 coral LOD, 23-25 far LOD of the large rock chunks, 26 shark, 27 nurse shark
 const meshes = [meshChunk(1, 3), meshChunk(7, 3), meshChunk(13, 3), meshChunk(22, 3),
   meshLathe([[0, 0, 0.5], [0.34, 0, 0.6], [0.5, 0.2, 0.85], [0.6, 0.6, 1], [0.55, 0.95, 1], [0.47, 1.08, 1], [0.38, 1.1, 0.9], [0.3, 1.0, 0.45], [0.26, 0.6, 0.15], [0, 0.35, 0.05]], 18, 0.3, 9),
   meshLathe([[0, 0, 0.5], [0.2, 0, 0.6], [0.26, 0.5, 0.85], [0.4, 1.25, 1], [0.4, 1.42, 1], [0.33, 1.48, 0.9], [0.26, 1.38, 0.4], [0.18, 0.8, 0.12], [0, 0.5, 0.05]], 16, 0.35, 8),
   meshLathe([[0, 0, 0.5], [0.5, 0, 0.7], [0.72, 0.18, 1], [0.74, 0.38, 1], [0.62, 0.5, 0.9], [0.48, 0.42, 0.45], [0.4, 0.2, 0.15], [0, 0.14, 0.06]], 18, 0.25, 10),
   meshCoral(0), meshCoral(1), meshTubes()].map((m) => m.build());
 meshes.push(meshFluke(), meshShip().build(), meshManta().build(), meshFish().build(),
-  meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build());
+  meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build(), meshNurse().build());
 let nV = 0, nI = 0;
 for (const m of meshes) { m.v0 = nV; m.i0 = nI; nV += m.nv; nI += m.ib.length; }
 const allV = new Uint8Array(nV * 16), allI = new Uint32Array(nI);
@@ -301,14 +305,44 @@ const solidData = new Float32Array((nSolid + 1) * 12); solidData.set(Wd.solids.d
 const ibSolids = buf(solidData, BU.VERTEX);
 const ibChunk = Wd.chunks.map((c) => buf(c.data, BU.VERTEX)), ibProp = Wd.props.map((c) => buf(c.data, BU.VERTEX));
 const ibBig = buf(new Uint8Array(Wd.big.buf), BU.VERTEX), ibBigF = buf(new Uint8Array(Wd.bigF.buf), BU.VERTEX), ibSmall = buf(new Uint8Array(Wd.small.buf), BU.VERTEX);
-const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibShark = buf(Wd.sharks, BU.VERTEX), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX);
+const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibShark = buf(Wd.sharks, BU.VERTEX), ibNurse = buf(Wd.nurse, BU.VERTEX), ibPup = device.createBuffer({ size: max(32, Wd.pups.byteLength), usage: BU.VERTEX | BU.COPY_DST }), ibPupB = device.createBuffer({ size: max(16, Wd.pups.byteLength / 2), usage: BU.VERTEX | BU.COPY_DST }), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX);
 const ibGl = buf(Wd.glints, BU.VERTEX), nGl = Wd.glints.length / 8;
-const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4;
-const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26];
+const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nNurse = Wd.nurse.length / 16, nPup = Wd.pups.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4;
+const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27];
 // the map circle: the arena picture from the world generator, with viewpoints 1-6, the player and where they look
 const mmBg = document.createElement('canvas'); mmBg.width = mmBg.height = 128; mmBg.getContext('2d').putImageData(new ImageData(Wd.mapImg, 128, 128), 0, 0);
 const mm = $('mm'), mx = mm.getContext('2d'); let mapT = 1e9;
+// where the sleeping nurse shark groups lie (instances that are within 9 m of each other are one group), for the map pins
+const nurseGroups = [];
+for (let i = 0; i < Wd.nurse.length; i += 16) {
+  const x = Wd.nurse[i], z = Wd.nurse[i + 2], g = nurseGroups.find((q) => hypot(q[0] / q[2] - x, q[1] / q[2] - z) < 9);
+  if (g) { g[0] += x; g[1] += z; g[2]++; } else nurseGroups.push([x, z, 1]);
+}
 mm.width = mm.height = Math.round(150 * min(devicePixelRatio || 1, 2));
+// key 7: jump to the next sleeping group of nurse sharks, a few metres off to the side of it, looking at it
+let nurseI = 0;
+function nurseTour() {
+  if (!nurseGroups.length) return;
+  const g = nurseGroups[nurseI++ % nurseGroups.length], cx = g[0] / g[2], cz = g[1] / g[2];
+  let cy = -43, yaw = 0; for (let o = 0; o < Wd.nurse.length; o += 16) if (hypot(Wd.nurse[o] - cx, Wd.nurse[o + 2] - cz) < 9) { cy = Wd.nurse[o + 1]; yaw = Wd.nurse[o + 3]; break; }
+  for (let k = 0; k < 8; k++) {
+    const a = yaw + 1.5708 + k * 0.785, px = cx + sin(a) * 7.5, pz = cz + cos(a) * 7.5;
+    F[CX] = px; F[CY] = cy + 2.4; F[CZ] = pz; sd(0);
+    if (CS[0] < -0.8) { lookAt(px, cy + 2.4, pz, cx, cy, cz); return; }
+  }
+  lookAt(cx + 7, cy + 4, cz, cx, cy, cz);
+}
+// key 8: jump to a spot on the path of the next blacktip reef shark (they cruise fast, so you wait for it to come to you), looking at it
+let pupI = 0;
+function pupTour() {
+  const n = PUP.length / 8; if (!n) return;
+  const o = (pupI++ % n) * 8, x = PUP[o], y = PUP[o + 1], z = PUP[o + 2], yaw = PUP[o + 3], hx = sin(yaw), hz = cos(yaw);
+  for (const [d, side] of [[14, 2.5], [10, 2.5], [14, -2.5], [18, 4], [10, -4], [8, 6], [8, -6]]) {
+    const cx = x + hx * d + hz * side, cz = z + hz * d - hx * side, cy = y + 0.4;
+    if (sdAt(cx, cy, cz) < -0.9) { lookAt(cx, cy, cz, x, y, z); return; }
+  }
+  lookAt(x + hz * 7, y + 1, z - hx * 7, x, y, z);
+}
 function drawMap() {
   const S = mm.width, u = S / 320, px = (F[CX] + 160) * u, pz = (F[CZ] + 160) * u, a = F[YAW];
   mx.clearRect(0, 0, S, S); mx.save(); mx.beginPath(); mx.arc(S / 2, S / 2, S / 2, 0, 6.2832); mx.clip();
@@ -319,6 +353,19 @@ function drawMap() {
   for (const t of TUNNELS) for (const e of [t.pts[0], t.pts[t.pts.length - 1]]) {
     const x = (e[0] + 160) * u, z = (e[2] + 160) * u; mx.fillStyle = '#ff9d3c'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
     mx.beginPath(); mx.arc(x, z, S * 0.036, 0, 6.2832); mx.fill(); mx.stroke(); mx.fillStyle = '#03222d'; mx.fillText(t.id, x, z + 0.5);
+  }
+  // sleeping nurse sharks: a red pin on each group
+  for (const g of nurseGroups) {
+    const x = (g[0] / g[2] + 160) * u, z = (g[1] / g[2] + 160) * u, r = S * 0.034;
+    mx.fillStyle = '#ff4f6d'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
+    mx.beginPath(); mx.moveTo(x - r * 0.82, z - r * 1.15); mx.lineTo(x, z); mx.lineTo(x + r * 0.82, z - r * 1.15); mx.closePath(); mx.fill(); mx.stroke();
+    mx.beginPath(); mx.arc(x, z - r * 1.75, r, 0, 6.2832); mx.fill(); mx.stroke();
+    mx.fillStyle = '#fff'; mx.beginPath(); mx.arc(x, z - r * 1.75, r * 0.38, 0, 6.2832); mx.fill();
+  }
+  // blacktip reef sharks: a yellow dot on each (they move, so these move too)
+  for (let o = 0; o < PUP.length; o += 8) {
+    mx.fillStyle = '#ffd91a'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
+    mx.beginPath(); mx.arc((PUP[o] + 160) * u, (PUP[o + 2] + 160) * u, S * 0.03, 0, 6.2832); mx.fill(); mx.stroke();
   }
   mx.translate(px, pz); mx.rotate(a);
   mx.fillStyle = '#ffffff30'; mx.beginPath(); mx.moveTo(0, 0); mx.arc(0, 0, S * 0.17, -1.57 - 0.6, -1.57 + 0.6); mx.closePath(); mx.fill(); // what you look at
@@ -512,6 +559,8 @@ function render() {
   }
   r.setPipeline(pManta); r.setVertexBuffer(1, ibManta); r.drawIndexed(MANTA.ib.length, nManta, MANTA.i0, MANTA.v0, 0);
   r.setPipeline(pShark); r.setVertexBuffer(1, ibShark); r.drawIndexed(SHARK.ib.length, nShark, SHARK.i0, SHARK.v0, 0);
+  if (nPup) { r.setPipeline(pPup); r.setVertexBuffer(1, ibPup); r.setVertexBuffer(2, ibPupB); r.drawIndexed(SHARK.ib.length, nPup, SHARK.i0, SHARK.v0, 0); }
+  r.setPipeline(pNurse); r.setVertexBuffer(1, ibNurse); r.drawIndexed(NURSE.ib.length, nNurse, NURSE.i0, NURSE.v0, 0);
   r.setPipeline(pFish); r.setVertexBuffer(1, ibFish); r.drawIndexed(FISH.ib.length, nFish, FISH.i0, FISH.v0, 0);
   // kelp and plants: 9-row blades up close, 5 rows mid-range, a decimated set far away
   r.setPipeline(pLeaf); r.setVertexBuffer(0, ibBig); drawCells(r, Wd.big.start, Wd.big.lo, Wd.big.hi, 5, false, 18, 0, 24);
@@ -574,6 +623,154 @@ function bodyPush(a, manta) {
     }
   }
 }
+// Sleeping nurse sharks are solid too: static bodies (yaw and pitch only), each a few ellipsoids in body units
+const NURSE_E = [[0, 0, 1.05, .09, .06, .14], [0, 0, .85, .15, .085, .2], [0, 0, .6, .2, .11, .25], [0, 0, .35, .21, .13, .25], [0, 0, .1, .18, .13, .25], [0, 0, -.15, .15, .12, .25], [0, 0, -.4, .125, .1, .25], [0, 0, -.65, .1, .09, .25], [0, 0, -.9, .08, .075, .25], [0, 0, -1.2, .06, .06, .3], [0, 0, -1.5, .05, .05, .3], [0, 0, -1.85, .04, .05, .35], [0, 0, -2.15, .04, .08, .35],
+  [.36, -.09, .25, .26, .04, .26], [-.36, -.09, .25, .26, .04, .26], [0, .2, -.3, .03, .2, .3], [0, .15, -.95, .03, .12, .2]];
+function nursePush(a) {
+  for (let o = 0; o < a.length; o += 16) {
+    const sz = a[o + 5]; if (hypot(F[CX] - a[o], F[CZ] - a[o + 2]) > sz * 3 + 3) continue;
+    const cy = cos(a[o + 3]), sy = sin(a[o + 3]), cp = cos(a[o + 4]), sp = sin(a[o + 4]);
+    const Sx = cy, Sz = -sy, Ux = -sy * sp, Uy = cp, Uz = -cy * sp, Tx = sy * cp, Ty = sp, Tz = cy * cp;
+    for (const e of NURSE_E) {
+      const dx = F[CX] - a[o], dy = F[CY] - a[o + 1], dz = F[CZ] - a[o + 2], r = CR / sz;
+      const lx = (dx * Sx + dz * Sz) / sz - e[0] - bendAt(e[2], a[o + 7]), ly = (dx * Ux + dy * Uy + dz * Uz) / sz - e[1], lz = (dx * Tx + dy * Ty + dz * Tz) / sz - e[2];
+      const ax = e[3] + r, ay = e[4] + r, az = e[5] + r, ux = lx / ax, uy = ly / ay, uz = lz / az, q = ux * ux + uy * uy + uz * uz;
+      if (q >= 1 || q < 1e-9) continue;
+      const k = 1 / sqrt(q) - 1, px = ux * k * ax * sz, py = uy * k * ay * sz, pz = uz * k * az * sz;
+      const wx = Sx * px + Ux * py + Tx * pz, wy = Uy * py + Ty * pz, wz = Sz * px + Uz * py + Tz * pz;
+      F[CX] += wx; F[CY] += wy; F[CZ] += wz;
+      const wl = hypot(wx, wy, wz) || 1, vn = (F[VX] * wx + F[VY] * wy + F[VZ] * wz) / wl;
+      if (vn < 0) { F[VX] -= vn * wx / wl; F[VY] -= vn * wy / wl; F[VZ] -= vn * wz / wl; }
+    }
+  }
+}
+// Blacktip reef sharks (Wd.pups, 8 floats each: x y z yaw | pitch size tail-phase turn-rate). They swim along the sea
+// floor at about twice the speed of the big sharks, always ~1.2 m above the ground, never into rock; every few seconds they
+// swerve by up to 30 degrees in an instant, and they swerve at once when rock lies ahead.
+const PUP = Wd.pups, PLANT = Wd.plantMap, pupSpeed = Array.from({ length: PUP.length / 8 }, () => 4 + Math.random() * 0.6), pupTimer = pupSpeed.map(() => 1 + Math.random() * 3), pupTarget = pupSpeed.map((_, i) => PUP[i * 8 + 3]), pupCool = pupSpeed.map(() => 0), pupDecide = pupSpeed.map(() => Math.random() * 0.1), pupVy = pupSpeed.map(() => 0);
+const sdAt = (x, y, z) => { const cx = F[CX], cy = F[CY], cz = F[CZ]; F[CX] = x; F[CY] = y; F[CZ] = z; sd(0); const v = CS[0]; F[CX] = cx; F[CY] = cy; F[CZ] = cz; return v; };
+const plantAt = (x, z) => { const i = floor((x + 160) / 2.5), j = floor((z + 160) / 2.5); return i < 0 || i >= 128 || j < 0 || j >= 128 || PLANT[i + 128 * j] >= PLANT_DENSE; }; // a very densely planted cell
+const solidAt = (x, y, z, margin) => sdAt(x, y, z) > -margin || plantAt(x, z); // rock within `margin` metres (the field is clamped to 1 m), or plants
+// height of the ground at (x, z): scanned down from y0 + 2.5 in 0.25 m steps, then refined by bisection (no stair-steps)
+const groundAt = (x, z, y0) => {
+  let prev = y0 + 2.5; if (sdAt(x, prev, z) > 0) return prev;
+  for (let y = prev - 0.25; y > y0 - 4; y -= 0.25) {
+    if (sdAt(x, y, z) > 0) { let a = prev, b = y; for (let k = 0; k < 5; k++) { const mid = (a + b) / 2; if (sdAt(x, mid, z) > 0) b = mid; else a = mid; } return (a + b) / 2; }
+    prev = y;
+  }
+  return y0 - 4;
+};
+const plantDens = (x, z) => { const i = floor((x + 160) / 2.5), j = floor((z + 160) / 2.5); return i < 0 || i >= 128 || j < 0 || j >= 128 ? 255 : PLANT[i + 128 * j]; };
+const pupDir = pupSpeed.map(() => (Math.random() < 0.5 ? 1 : -1));
+const PUPB = new Float32Array(PUP.length / 2); // per shark: the body's four sideways offsets (see vsPup)
+// the path each head has left (points and the distance travelled when each was made), starting as a straight line behind it
+const pupHist = pupSpeed.map((_, i) => { const o = i * 8, yaw = PUP[o + 3], h = { x: [], z: [], s: [], dist: 0 }; for (let k = 40; k >= 0; k--) { h.x.push(PUP[o] - sin(yaw) * k * 0.2); h.z.push(PUP[o + 2] - cos(yaw) * k * 0.2); h.s.push(40 * 0.2 - k * 0.2); } h.dist = 8; return h; });
+// the same smooth curve through the stations as in latAt (offsets in metres; u in body lengths behind the middle)
+const latJS = (u, o) => { if (u <= 0) return 0; if (u >= 1.6) return PUPB[o + 3]; const s = u / 0.4, k = floor(s), t = s - k, v = [0, 0, PUPB[o], PUPB[o + 1], PUPB[o + 2], PUPB[o + 3]], p0 = v[k], p1 = v[k + 1], p2 = v[k + 2], p3 = v[min(k + 3, 5)]; return 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t); };
+const pupLift = pupSpeed.map(() => 0), pupLog = [], pupCommit = pupSpeed.map(() => 0), pupThru = pupSpeed.map(() => 0), pupStuck = pupSpeed.map(() => 0), pupLong = pupSpeed.map(() => 0), pupHome = Array.from(PUP.subarray ? PUP : PUP);
+// is the whole body clear of rock when the middle of the shark is at (bx, by, bz) heading yw? (lat: the trail offsets of the bent body)
+const PUP_PTS = [[1.0, 0, 0], [-1.4, 0, 0], [-1.45, 0, 0.35], [0.1, 0.78, -0.4], [0.1, -0.78, -0.4], [-0.5, 0.5, -0.1], [-0.5, -0.5, -0.1]];
+const pupBodyClear = (bx, by, bz, yw, sz, i, margin) => {
+  const hx = sin(yw), hz = cos(yw), sx = cos(yw), sz2 = -sin(yw);
+  for (const [f, s, up] of PUP_PTS) { const lt = i >= 0 && f < 0 ? latJS(-f, i * 4) : 0; if (sdAt(bx + (hx * f + sx * s) * sz + sx * lt, by + up * sz, bz + (hz * f + sz2 * s) * sz + sz2 * lt) > -margin) return false; }
+  return true;
+};
+// how far (m, up to maxD) the shark could swim along heading yw with its whole body clear
+const pupRun = (x, y, z, yw, sz, maxD) => { let d = 0; for (; d < maxD; d += 1.2) if (!pupBodyClear(x + sin(yw) * (d + 1.2), y, z + cos(yw) * (d + 1.2), yw, sz, -1, 0.1)) break; return d; };
+const wrapA = (a) => Math.atan2(sin(a), cos(a));
+function pupStep(dt) {
+  for (let i = 0; i < pupSpeed.length; i++) {
+    const o = i * 8; let x = PUP[o], y = PUP[o + 1], z = PUP[o + 2], yaw = PUP[o + 3]; const sz = PUP[o + 5], v = pupSpeed[i];
+    pupTimer[i] -= dt; pupCool[i] -= dt; pupDecide[i] -= dt; pupThru[i] -= dt; pupCommit[i] -= dt;
+    const thru = pupThru[i] > 0, blk = (px, py, pz, mg) => sdAt(px, py, pz) > -mg || (!thru && plantAt(px, pz)); // boxed in earlier: plants are pushed through for a while
+    if (pupDecide[i] <= 0 && (pupCommit[i] <= 0 || hypot(x, z) > 128)) { // steering is decided ten times a second, so it never twitches from frame to frame
+      pupDecide[i] = 0.1;
+      const ahead = (d, off) => { const a = yaw + off; return blk(x + sin(a) * d, y, z + cos(a) * d, 0.6); };
+      const out = hypot(x, z) > 122 && x * sin(yaw) + z * cos(yaw) > 0; // heading out of the arena
+      const inDense = !thru && plantAt(x, z);
+      // a passage too narrow for the body (rock on both sides, within the width of the fins and tail) counts as blocked: turn away before going in
+      const hx0 = sin(yaw), hz0 = cos(yaw), sx0 = cos(yaw), sz0 = -sin(yaw), nw = 1.45 * sz;
+      const narrow = [2.5, 5, 8].some((d) => blk(x + hx0 * d + sx0 * nw, y, z + hz0 * d + sz0 * nw, 0.5) && blk(x + hx0 * d - sx0 * nw, y, z + hz0 * d - sz0 * nw, 0.5));
+      const blocked = ahead(sz * 2.4, 0) || ahead(sz * 4.8, 0) || ahead(sz * 7, 0) || ahead(sz * 2.8, 0.4) || ahead(sz * 2.8, -0.4) || inDense || out || narrow;
+      if (blocked && pupCool[i] <= 0) { // swerve 30 degrees towards whichever side is clearer (or back towards the middle) and hold it
+        const L = !ahead(sz * 4, 0.5236) + !ahead(sz * 7, 0.5236) + !ahead(sz * 10, 0.5236), R = !ahead(sz * 4, -0.5236) + !ahead(sz * 7, -0.5236) + !ahead(sz * 10, -0.5236);
+        let sgn = L === R ? pupDir[i] : L > R ? 1 : -1; // (when both sides are the same, keep the way it was turning: no dithering)
+        if (out) sgn = (x * cos(yaw) - z * sin(yaw)) > 0 ? -1 : 1; // (the way that turns it back towards the middle)
+        else if (inDense) { // inside a thickly planted cell: head for the thinner side
+          const dl = plantDens(x + sin(yaw + 0.5) * 6, z + cos(yaw + 0.5) * 6) + plantDens(x + sin(yaw + 1) * 6, z + cos(yaw + 1) * 6), dr = plantDens(x + sin(yaw - 0.5) * 6, z + cos(yaw - 0.5) * 6) + plantDens(x + sin(yaw - 1) * 6, z + cos(yaw - 1) * 6);
+          if (dl !== dr) sgn = dl < dr ? 1 : -1;
+        }
+        pupDir[i] = sgn; pupTarget[i] = yaw + sgn * 0.5236; pupCool[i] = 0.5; pupTimer[i] = 1.5 + Math.random() * 2;
+      } else if (!blocked && pupCool[i] <= 0 && (ahead(sz * 1.6, 1.5708) || ahead(sz * 1.6, -1.5708))) { // rock or plants close at a flank: ease away
+        const lb = ahead(sz * 1.6, 1.5708), rb = ahead(sz * 1.6, -1.5708);
+        pupTarget[i] = yaw + (lb && !rb ? -1 : rb && !lb ? 1 : (Math.random() < 0.5 ? -1 : 1)) * 0.3; pupCool[i] = 0.6;
+      } else if (!blocked && pupTimer[i] <= 0) { // now and then a sudden turn, 10 to 30 degrees either way
+        // (towards the emptier side: the sharks roam where the plants are thin)
+        const dl = plantDens(x + sin(yaw + 0.6) * 8, z + cos(yaw + 0.6) * 8) + plantDens(x + sin(yaw + 0.3) * 5, z + cos(yaw + 0.3) * 5), dr = plantDens(x + sin(yaw - 0.6) * 8, z + cos(yaw - 0.6) * 8) + plantDens(x + sin(yaw - 0.3) * 5, z + cos(yaw - 0.3) * 5);
+        const sg = dl === dr ? (Math.random() < 0.5 ? 1 : -1) : dl < dr ? 1 : -1;
+        pupTarget[i] = yaw + sg * (0.17 + Math.random() * 0.35); pupTimer[i] = 2.2 + Math.random() * 4;
+      }
+    }
+    // heading eases towards the target (quick, 30 degrees in about a fifth of a second, but with no corners)
+    const dyaw = wrapA(pupTarget[i] - yaw); let step = dyaw * Math.min(1, dt * 9); const lim = 2.6 * dt; step = step < -lim ? -lim : step > lim ? lim : step; yaw += step;
+    PUP[o + 7] += (step / dt - PUP[o + 7]) * Math.min(1, dt * 3); // turn rate, smoothed: the body banks gently into the turn
+    const nx = x + sin(yaw) * v * dt, nz = z + cos(yaw) * v * dt;
+    let moved = false;
+    // the whole body must stay clear of rock at the next position: nose, tail, the tail's tip and both pectoral tips
+    const bodyOK = (bx, bz) => pupBodyClear(bx, y, bz, yaw, sz, i, 0.12);
+    if (sdAt(nx, y, nz) <= -0.35 && bodyOK(nx, nz) && (thru || !plantAt(nx, nz) || plantAt(x, z))) { x = nx; z = nz; moved = true; } else { pupCool[i] = 0; pupDecide[i] = 0; } // (decide again at once; from inside a dense patch it may always move on, out of it)
+    if (!moved) y += 0.5 * dt; // not moving: ease upwards out of whatever is holding it
+    pupStuck[i] = moved ? 0 : pupStuck[i] + dt; pupLong[i] = moved ? Math.max(0, pupLong[i] - dt * 2) : pupLong[i] + dt;
+    if (!moved && pupLong[i] > 0.9 && pupLong[i] < 0.9 + dt * 1.5) pupLog.push([+x.toFixed(1), +y.toFixed(1), +z.toFixed(1), +yaw.toFixed(2), i]); // (where they first get stuck)
+    if (pupLong[i] > (hypot(x - F[CX], z - F[CZ]) > 25 ? 2.5 : 5)) { x = pupHome[o]; y = pupHome[o + 1]; z = pupHome[o + 2]; yaw = Math.random() * 6.2832; pupTarget[i] = yaw; pupLong[i] = 0; pupStuck[i] = 0; pupVy[i] = 0; const H0 = pupHist[i]; H0.x.length = H0.z.length = H0.s.length = 0; for (let k = 40; k >= 0; k--) { H0.x.push(x - sin(yaw) * k * 0.2); H0.z.push(z - cos(yaw) * k * 0.2); H0.s.push(8 - k * 0.2); } H0.dist = 8; PUP[o] = x; PUP[o + 2] = z; } // wedged for good: start over from where it began (quickly if out of sight)
+    if (pupStuck[i] > 0.35) { // boxed in: take the heading (of 24) along which the whole body could swim furthest, and keep to it
+      let best = -1, bestA = yaw;
+      pupLift[i] = 1.3; // swim a little higher, out of the clutter near the floor, while getting out
+      for (let k = 0; k < 24; k++) { const a = yaw + k * 0.2618, run = pupRun(x, y + 0.7, z, a, sz, 14) - 0.4 * Math.abs(wrapA(a - yaw)); if (run > best) { best = run; bestA = a; } }
+      pupTarget[i] = bestA; pupCool[i] = 1; pupCommit[i] = 1.6; pupStuck[i] = 0; pupThru[i] = 2.5;
+    }
+    // height: a steady cruise about 1 m over the ground, following its overall slope (the mean of the ground over the next 8 m with
+    // the highest point counted in), never its small bumps: so no bobbing, only a slow rise and fall with the sea floor
+    const gs = [groundAt(x, z, y), groundAt(x + sin(yaw) * 3, z + cos(yaw) * 3, y), groundAt(x + sin(yaw) * 6, z + cos(yaw) * 6, y), groundAt(x + sin(yaw) * 9, z + cos(yaw) * 9, y)].map((q) => Math.min(q, y + 0.9)), // (one ledge or overhang never sends it up in a hurry)
+       gmax = max(...gs), gmean = (gs[0] + gs[1] + gs[2] + gs[3]) / 4;
+    pupLift[i] = Math.max(0, pupLift[i] - dt * 0.4);
+    const want = min(0.4 * gmax + 0.6 * gmean + 1.1 * sz / 1.5 + pupLift[i], -34);
+    const vy = max(-1.2, min(2.2, (want - y) * 1.2)); pupVy[i] += (vy - pupVy[i]) * Math.min(1, dt * 1.5); y += pupVy[i] * dt;
+    if (sdAt(x, y, z) > -0.15) y += 0.03; // (a gentle nudge up if it ever gets that close to rock)
+    const H = pupHist[i], ex = x - PUP[o], ez = z - PUP[o + 2];
+    if (ex || ez) { H.dist += hypot(ex, ez); H.x.push(x); H.z.push(z); H.s.push(H.dist); if (H.s.length > 700) { H.x.splice(0, 300); H.z.splice(0, 300); H.s.splice(0, 300); } }
+    // the body follows the trail of the head: where the trail was 0.4, 0.8, 1.2, 1.6 body lengths ago, measured sideways from the
+    // line the shark now points along
+    for (let k = 0; k < 4; k++) {
+      const want = H.dist - 0.4 * (k + 1) * sz; let j = H.s.length - 1; while (j > 0 && H.s[j] > want) j--;
+      const t = j < H.s.length - 1 ? (want - H.s[j]) / (H.s[j + 1] - H.s[j] || 1) : 0, px = H.x[j] + (H.x[j + 1 < H.s.length ? j + 1 : j] - H.x[j]) * t, pz = H.z[j] + (H.z[j + 1 < H.s.length ? j + 1 : j] - H.z[j]) * t;
+      PUPB[i * 4 + k] = 0.9 * ((px - x) * cos(yaw) - (pz - z) * sin(yaw));
+    }
+    PUP[o] = x; PUP[o + 1] = y; PUP[o + 2] = z; PUP[o + 3] = yaw;
+    PUP[o + 4] += (Math.atan2(pupVy[i], v) * 0.6 - PUP[o + 4]) * Math.min(1, dt * 2);
+    PUP[o + 6] += dt * (1.6 + v * 0.35); // a slow, even tail beat
+  }
+  Q.writeBuffer(ibPup, 0, PUP); Q.writeBuffer(ibPupB, 0, PUPB);
+}
+// the blacktips are solid: the same ellipsoids as the big ones, in their own (yaw, pitch) frame
+function pupPush(a) {
+  for (let o = 0; o < a.length; o += 8) {
+    const sz = a[o + 5]; if (hypot(F[CX] - a[o], F[CZ] - a[o + 2]) > sz * 3 + 3) continue;
+    const cy = cos(a[o + 3]), sy = sin(a[o + 3]), cp = cos(a[o + 4]), sp = sin(a[o + 4]);
+    const Sx = cy, Sz = -sy, Ux = -sy * sp, Uy = cp, Uz = -cy * sp, Tx = sy * cp, Ty = sp, Tz = cy * cp;
+    for (const e of SHARK_E) {
+      const dx = F[CX] - a[o], dy = F[CY] - a[o + 1], dz = F[CZ] - a[o + 2], r = CR / sz;
+      const lx = (dx * Sx + dz * Sz) / sz - e[0] - latJS(-e[2], (o / 8) * 4) / sz, ly = (dx * Ux + dy * Uy + dz * Uz) / sz - e[1], lz = (dx * Tx + dy * Ty + dz * Tz) / sz - e[2];
+      const ax = e[3] + r, ay = e[4] + r, az = e[5] + r, ux = lx / ax, uy = ly / ay, uz = lz / az, q = ux * ux + uy * uy + uz * uz;
+      if (q >= 1 || q < 1e-9) continue;
+      const k = 1 / sqrt(q) - 1, px = ux * k * ax * sz, py = uy * k * ay * sz, pz = uz * k * az * sz;
+      const wx = Sx * px + Ux * py + Tx * pz, wy = Uy * py + Ty * pz, wz = Sz * px + Uz * py + Tz * pz;
+      F[CX] += wx; F[CY] += wy; F[CZ] += wz;
+      const wl = hypot(wx, wy, wz) || 1, vn = (F[VX] * wx + F[VY] * wy + F[VZ] * wz) / wl;
+      if (vn < 0) { F[VX] -= vn * wx / wl; F[VY] -= vn * wy / wl; F[VZ] -= vn * wz / wl; }
+    }
+  }
+}
 function collide() {
   const n = floor(sqrt(F[MX] * F[MX] + F[MY] * F[MY] + F[MZ] * F[MZ]) / 0.4) + 1;
   for (let i = 0; i < n; i++) {
@@ -587,7 +784,7 @@ function collide() {
       F[CX] -= gx * s; F[CY] -= gy * s; F[CZ] -= gz * s;
       if (vn > 0) { F[VX] -= gx * vn; F[VY] -= gy * vn; F[VZ] -= gz * vn; }
     }
-    bodyPush(Wd.sharks, 0); bodyPush(Wd.mantas, 1);
+    bodyPush(Wd.sharks, 0); bodyPush(Wd.mantas, 1); nursePush(Wd.nurse); pupPush(Wd.pups);
   }
 }
 
@@ -614,6 +811,7 @@ function frame(now) {
     dynN = dynT = dynG = dynGN = 0; resize();
   }
   F[TIME] += dt;
+  pupStep(dt);
   {
     // touch: holding the finger away from where it went down keeps turning, like a joystick
     if (tId >= 0) {
@@ -627,9 +825,9 @@ function frame(now) {
     const dyw = l2x * kq, dpt = l2y * kq; l2x -= dyw; l2y -= dpt;
     const yaw = F[YAW] + dyw; let pitch = F[PIT] - dpt; pitch = pitch < -1.55 ? -1.55 : pitch > 1.55 ? 1.55 : pitch;
     const sp = ks || ka || tN > 1 ? 26 : 7, k = 1 - exp(-dt * 4.5), mf = tId >= 0 ? 0.7 : kf - kb, mr = kr - kl, mu = ku - kd, cp = cos(pitch), sy = sin(yaw), cw = cos(yaw);
-    // underwater current: one steady flow that pushes you gently away (~0.45 m/s) while you also bob up and down (about
+    // underwater current: one steady flow that pushes you very gently away (~0.18 m/s) while you also bob up and down (about
     // 0.4 m, every 6 s), as if floating. Near the edge of the arena the flow turns back toward the middle.
-    const tc = F[TIME], cu = F[CY] < -0.4 ? (F[CY] < -1.5 ? 1 : (-F[CY] - 0.4) / 1.1) : 0, cr = sqrt(F[CX] * F[CX] + F[CZ] * F[CZ]), cw2 = cr > 105 ? (cr > 135 ? 1 : (cr - 105) / 30) : 0, cs = 0.45 * (1 + 0.15 * sin(tc * 0.09));
+    const tc = F[TIME], cu = F[CY] < -0.4 ? (F[CY] < -1.5 ? 1 : (-F[CY] - 0.4) / 1.1) : 0, cr = sqrt(F[CX] * F[CX] + F[CZ] * F[CZ]), cw2 = cr > 105 ? (cr > 135 ? 1 : (cr - 105) / 30) : 0, cs = 0.18 * (1 + 0.15 * sin(tc * 0.09));
     const cvx = (0.8 * (1 - cw2) - F[CX] / (cr + 1) * cw2) * cs * cu, cvz = (0.6 * (1 - cw2) - F[CZ] / (cr + 1) * cw2) * cs * cu;
     const cvy = (0.42 * sin(tc * 1.05) + 0.1 * sin(tc * 2.3 + 1)) * cu;
     const vx = F[VX] + ((sy * cp * mf + cw * mr) * sp + cvx - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * sp + cvy - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * sp + cvz - F[VZ]) * k;
@@ -668,6 +866,8 @@ const key = (e, v) => {
       else if (e.code === 'KeyN') mm.style.visibility = mm.style.visibility ? '' : 'hidden';
       else if (e.code === 'Escape') ui(true);
       else if (e.code >= 'Digit1' && e.code <= 'Digit6') lookAt(...POSES[e.code.charCodeAt(5) - 49]);
+      else if (e.code === 'Digit7') nurseTour();
+      else if (e.code === 'Digit8') pupTour();
     }
   }
 };

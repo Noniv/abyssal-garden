@@ -23,6 +23,8 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 - **Manta rays**, **great white sharks**, schools of fish, rising bubbles and drifting particles
 - **A purple grotto** with glowing magenta ground cover, coral and barrel sponges
 - **The world above the water:** swim up through the surface and look out over a rippling sea with sky, clouds and sun glitter (you sink back once you stop swimming up)
+- **Blacktip reef sharks**: three smaller, fast sharks that cruise along the sea floor (about twice the speed of the big sharks), swerving by up to 30 degrees now and then, always steering clear of the rocks and away from the thick kelp (they roam the open sea floor). Black tips on the dorsal fin (over a white band), the other fins and the tail, like the ones in the Maldives; a slight, slow tail beat and a steady cruise just above the floor. When one swerves, the nose turns first and the body follows the path the head took, bending in an S. They are solid too, show as yellow dots on the map, and `8` puts you in the path of one
+- **Sleeping nurse sharks**: tawny ochre, blotched with dark spots, sleeping in piles of four to six on the flat sea floor, noses together and slender, S-curved bodies fanned out like spokes, slowly flapping their pointed fins, swaying their tails and blinking now and then as they breathe. They are solid, like rocks, and each group is a red pin on the map
 - **Four dark tunnels** winding through the big rock walls and the pillar: swim in at one mouth and find your way to the other. Inside it is pitch black, so your torch switches itself on a few metres in (with a click) and off again on the way out. Both ends of every tunnel are marked on the map with an orange dot and the tunnel's letter
 - **A little map circle** (bottom right) showing where you are, which way you look and where the six viewpoints are
 - **An underwater current** that carries you gently in one direction while you bob up and down, if you float still
@@ -44,13 +46,15 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 | Up / down | `E` / `Q` |
 | Swim faster | Hold `Shift`, or tap `↑` twice quickly and hold it on the second tap |
 | Jump to a viewpoint | `1` to `6` (the spots in the screenshots) |
+| Visit the sleeping nurse sharks | `7` (press again for the next group) |
+| Meet the blacktip reef sharks | `8` (puts you in the path of one; press again for the next) |
 | Menu | `Esc` releases the mouse and opens the menu with the list of controls; **Resume** takes you back |
 | Sound on / off | `M`, or the **Sound** buttons in the menu (remembered; sound starts when you dive in) |
 | Map circle on / off | `N` |
 | Performance stats | `H` |
 | Detail level | **Low**, **Medium** or **High** in the menu (reloads the page) |
 
-The seabed, cliffs and arches are solid: you glide along the rock instead of swimming into it, and you still fit through every tunnel and arch. Kelp, plants, corals, sponges, loose rocks, the ship and the whale tail you can swim through. Sharks and manta rays are solid too: you can't swim through their bodies, fins or wings, and you slide along them (fish are small enough to swim through).
+The seabed, cliffs and arches are solid: you glide along the rock instead of swimming into it, and you still fit through every tunnel and arch. Kelp, plants, corals, sponges, loose rocks, the ship and the whale tail you can swim through. Sharks, blacktip reef sharks, manta rays and the sleeping nurse sharks are solid too: you can't swim through their bodies, fins or wings, and you slide along them (fish are small enough to swim through).
 
 **On a touchscreen:** hold one finger down to swim forward and slide it to steer. Put a second finger down to go faster. The `≡` button in the corner opens the menu. Phones always show the scene in landscape and start on Low or Medium detail. (Touch support is experimental.)
 

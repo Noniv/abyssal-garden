@@ -20,6 +20,10 @@ function bodyPose(a, o, t, manta) {
   BP[0] = px; BP[1] = py; BP[2] = pz; BP[3] = nsx; BP[4] = nsy; BP[5] = nsz; BP[6] = ux; BP[7] = uy; BP[8] = uz; BP[9] = tx; BP[10] = ty; BP[11] = tz;
 }
 
+// leaves per 2.5 m cell from which an area counts as very full of plants (the blacktip sharks avoid those)
+const PLANT_DENSE = 12;
+// the S-curve of a sleeping nurse shark's body: sideways offset (body units) at z, for bend amplitude A (the nose, z = 1, stays put)
+const bendAt = (z, A) => A * sin((1 - z) * 1.55) * (0.15 + 0.85 * sstep(0.9, -0.4, z));
 // designed rock masses: ax, az, bx, bz, radius, top, overhang, waist
 const MESAS = [
   [-37, -42, -33, -22, 9, -7, 3.5, 2], [-29, -15, -33, 5, 12, -14, 3, 2], [-36, 11, -30, 27, 9, -5, 4, 2],   // west wall of the main canyon
@@ -136,7 +140,8 @@ function makeWorld(D, T, flyPts, POSES) {
   const big = Array.from({ length: nCells }, () => []), small = Array.from({ length: nCells }, () => []);
   // Medium and Low keep every 2nd / 4th leaf (but every kelp stem), made wider; the random stream is the same
   let nth = 0;
-  const leaf = (L, x, y, z, len, yaw, tilt, wid, hA, type, s1, s2, bend) => { if (type === 1 || !(nth++ % THIN)) L[cellOf(x, z)].push(x, y, z, len, yaw, tilt, type === 1 ? wid : wid * (1 + LV / 2), hA, type, s1, s2, bend); };
+  const PMN = 128, plantW = new Uint16Array(PMN * PMN); // how many leaves grow in each 2.5 m cell (the blacktip sharks stay out of plants)
+  const leaf = (L, x, y, z, len, yaw, tilt, wid, hA, type, s1, s2, bend) => { if (L === big && len >= 1.4) { const pi = floor((x + 160) / 2.5), pj = floor((z + 160) / 2.5); if (pi >= 0 && pi < PMN && pj >= 0 && pj < PMN) plantW[pi + PMN * pj]++; } if (type === 1 || !(nth++ % THIN)) L[cellOf(x, z)].push(x, y, z, len, yaw, tilt, type === 1 ? wid : wid * (1 + LV / 2), hA, type, s1, s2, bend); };
   const glint = (...a) => { nth++ % THIN || glints.push(...a); };
   const solids = []; // per mesh id: arrays of 12 floats
   const props = Array.from({ length: 6 }, () => Array.from({ length: nCells }, () => []));
@@ -174,14 +179,33 @@ function makeWorld(D, T, flyPts, POSES) {
   };
   const pickV = () => ((rnd() * T.nv) | 0) * 3;
   const tangent = (n) => { let t = abs(n[1]) < 0.9 ? [n[2], 0, -n[0]] : [1, 0, 0]; const l = hypot(...t); t = t.map((v) => v / l); return [t, [n[1] * t[2] - n[2] * t[1], n[2] * t[0] - n[0] * t[2], n[0] * t[1] - n[1] * t[0]]]; };
+  // sleeping nurse sharks: where the groups lie (found below); their patches of sea floor are kept clear of decoration
+  const nurseSites = [], nearNurse = (x, z, r) => nurseSites.some((s) => hypot(x - s[0], z - s[2]) < r);
   // the camera path, and the mouths of the tunnels (kept free of growth so they can be spotted), are kept clear of decoration
   const nearFly = (x, y, z, r) => {
+    if (nearNurse(x, z, 7 + r)) return true;
     for (const p of flyPts) if (hypot(x - p[0], z - p[2]) < r && y < p[1] + 3 && y > p[1] - 13) return true;
     for (const t of TUNNELS) for (const e of [t.pts[0], t.pts[t.pts.length - 1]]) if (hypot(x - e[0], z - e[2]) < 13 + r) return true;
     return false;
   };
   const inTunnel = (x, y, z) => tunnelDark(x, y, z) > 0.2; // loose rocks stay out of the tunnels
   const nearPose = (x, z, r = 3) => { for (const p of POSES) if (hypot(x - p[0], z - p[2]) < r) return true; return false; };
+  // --- nurse shark sites: flat, open, sandy-looking floor away from viewpoints, the camera path and the tunnels; the first four
+  // lie in front of viewpoints 1, 2, 4 and 6 so they are easy to come across, the rest anywhere
+  rseed(15);
+  {
+    const POSEI = [0, 1, 3, 5];
+    for (let tries = 0; tries < 30000 && nurseSites.length < 7; tries++) {
+      const k = pickV(), x = T.wp[k], y = T.wp[k + 1], z = T.wp[k + 2], want = nurseSites.length < 4 ? POSES[POSEI[nurseSites.length]] : null;
+      if (T.wn[k + 1] < 0.95 || y > -26 || y < -48 || hypot(x, z) > 130) continue;
+      if (want && (tries < 25000) && !(hypot(x - want[0], z - want[2]) > 14 && hypot(x - want[0], z - want[2]) < 32)) continue;
+      if (nurseSites.some((s) => hypot(x - s[0], z - s[2]) < 36) || nearPose(x, z, 10) || flyPts.some((p) => hypot(x - p[0], z - p[2]) < 8)) continue;
+      if (TUNNELS.some((t) => [t.pts[0], t.pts[t.pts.length - 1]].some((e) => hypot(x - e[0], z - e[2]) < 20)) || tunnelDark(x, y, z) > 0.01) continue;
+      let ok = true;
+      for (let a = 0; a < 8 && ok; a++) for (const r of [2.5, 5]) { const f = floorsAt(x + cos(a * TAU / 8) * r, z + sin(a * TAU / 8) * r); if (f.length !== 2 || abs(f[0] - y) > 0.45) { ok = false; break; } }
+      if (ok) nurseSites.push([x, y, z]);
+    }
+  }
   // --- kelp columns
   const column = (x, y, z, H, kind, dens = 1) => {
     const strands = 2 + (rnd() < 0.6) + (rnd() < 0.3), ph = rnd() * TAU, tw = rr(0.1, 0.28), sr = rr(0.2, 0.55), sc = rr(0.75, 1.25);
@@ -223,6 +247,7 @@ function makeWorld(D, T, flyPts, POSES) {
     if (grad(x, y, z)[1] < 0.55) return;
     if (!force && flyPts.some((p) => hypot(x - p[0], z - p[2]) < 5)) return;
     if (TUNNELS.some((t) => [t.pts[0], t.pts[t.pts.length - 1]].some((e) => hypot(x - e[0], z - e[2]) < 15))) return; // keep tunnel mouths in view
+    if (nearNurse(x, z, 8)) return;
     occ.add(key);
     column(x, y - 0.3, z, min(f[i + 1] - rr(0.8, 5), force ? rr(30, 42) : rr(15, 40)), kind, dens);
   };
@@ -269,7 +294,7 @@ function makeWorld(D, T, flyPts, POSES) {
   rseed(4);
   for (const p of MAGENTA) for (let i = p[2] * p[2] * PI * 45; i > 0; i--) {
     const a = rnd() * TAU, r = sqrt(rnd()) * p[2], x = p[0] + cos(a) * r, z = p[1] + sin(a) * r;
-    if (rnd() > magAt(x, z) + 0.12 || nearPose(x, z)) continue;
+    if (rnd() > magAt(x, z) + 0.12 || nearPose(x, z) || nearNurse(x, z, 7)) continue;
     const f = floorsAt(x, z); if (!f.length) continue;
     const y = f[f.length - 2]; if (grad(x, y, z)[1] < 0.7) continue;
     const nl = 2 + (rnd() * 3 | 0), yw = rnd() * TAU;
@@ -351,6 +376,52 @@ function makeWorld(D, T, flyPts, POSES) {
   rseed(12);
   for (const b of [[7, 3.2, 1.3, 4], [8.4, 4.6, 1.0, 6], [9.6, 2.6, 1.5, 4], [11, 5, 1.1, 5], [8, -3.6, 1.2, 4], [12.5, 2, 1.2, 6], [9, 3.9, 0.8, 4]]) { const p = rel(3, b[0], b[1]), c = POSES[3]; let ux = (c[0] - p[0]) * 0.07, uz = (c[2] - p[1]) * 0.07; const l = hypot(ux, 1, uz); solid(b[3], p[0], gy(p[0], p[1]) - 0.1, p[1], b[2], qFromY(ux / l, 1 / l, uz / l), 4, rnd(), 1, 0); }
   for (let i = 0; i < 9; i++) { const a = rnd() * TAU; const x = -5 + cos(a) * rr(1.2, 2.6), z = -4 + sin(a) * rr(1.5, 4); solid(6, x, gy(x, z) + 0.05, z, rr(0.4, 0.9), qAxis(0, 1, 0, rnd() * 6), 4, rnd(), 1, 0); }
+
+  // --- nurse sharks: each group is a pile, noses together at the middle and the bodies fanning out like spokes, each
+  // bent in an S sideways. Each body is rigid and straight (up and down), tilted to the slope and lying on the ground.
+  const nurse = [];
+  rseed(16);
+  for (const site of nurseSites) {
+    const n = 4 + (rnd() * 3 | 0), a0 = rnd() * TAU;
+    for (let i = 0; i < n; i++) {
+      const ang = a0 + i * TAU / n + rr(-0.16, 0.16), ux = sin(ang), uz = cos(ang), sz = rr(0.9, 1.1), bend = (rnd() < 0.5 ? -1 : 1) * rr(0.3, 0.5);
+      const yaw = atan2(-ux, -uz), hx = sin(yaw), hz = cos(yaw), gap = 0.1 + rr(0, 0.12);
+      const x = site[0] + ux * (gap + NOSE * sz), z = site[2] + uz * (gap + NOSE * sz); // the nose (NOSE body units ahead of this point) lands at the middle
+      // the ground under the body's centre line and its two flanks at body z, following the S-curve
+      const ground = (zz) => { let m = -1e9; for (const sd of [-0.14, 0, 0.14]) { const dx = bendAt(zz, bend) + sd, f = floorsAt(x + (hx * zz + hz * dx) * sz, z + (hz * zz - hx * dx) * sz); if (!f.length) return null; m = max(m, f[f.length - 2]); } return m; };
+      const gk = NURSE_ZK.map(ground);
+      if (gk.some((v) => v === null)) continue;
+      // one straight, rigid pose: the body's slope is the least-squares slope of the ground along it, and it is then set so the
+      // belly just touches the highest ground under it (it never sinks in)
+      const belly = (zz) => 0.52 * nurseAt(nurseZ0(zz))[0], zw = NURSE_ZK.map((q) => q * sz), want = gk.map((g, k) => g + belly(NURSE_ZK[k]) * sz);
+      const zm = zw.reduce((s, v) => s + v, 0) / 8, hm = want.reduce((s, v) => s + v, 0) / 8;
+      let cv = 0, vr = 0; for (let k = 0; k < 8; k++) { cv += (zw[k] - zm) * (want[k] - hm); vr += (zw[k] - zm) ** 2; }
+      const slope = cv / vr, pitch = Math.atan(slope), y = max(...want.map((v, k) => v - slope * zw[k]));
+      const hover = max(...want.map((v, k) => y + slope * zw[k] - v)); // how far the body hovers over the lowest ground under it
+      if (abs(slope) > 0.3 || hover > 0.22) continue;
+      if (![[0.9, 0.2], [0.2, 0.25], [-0.6, 0.2], [-1.4, 0.15]].every(([d, up]) => { const dx = bendAt(d, bend); return Dw(x + (hx * d + hz * dx) * sz, y + up + slope * d * sz, z + (hz * d - hx * dx) * sz) < -0.1; })) continue;
+      nurse.push(x, y, z, yaw, pitch, sz, rnd(), bend, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+  }
+
+  // --- blacktip reef sharks (half the size of the big ones): start on open sea floor, away from tunnels and the sleeping nurse sharks
+  // how thickly tall plants (kelp and long ribbon leaves) grow in each cell, 0..255; the blacktips swim through sparse plants but
+  // turn away from cells at PLANT_DENSE and above
+  const plantMap = new Uint8Array(PMN * PMN);
+  for (let j = 0; j < PMN; j++) for (let i = 0; i < PMN; i++) plantMap[i + PMN * j] = min(255, plantW[i + PMN * j]);
+  const plantNear = (x, z) => { const i = floor((x + 160) / 2.5), j = floor((z + 160) / 2.5); return i < 0 || i >= PMN || j < 0 || j >= PMN || plantMap[i + PMN * j] >= PLANT_DENSE / 3; };
+  const pups = [], freeP = (x, y, z, m) => Dw(x, y, z) < -m;
+  rseed(17);
+  for (let tries = 0; tries < 4000 && pups.length < 3 * 8; tries++) {
+    const ang = rnd() * TAU, r = rr(25, 120), x = cos(ang) * r, z = sin(ang) * r;
+    if (nearNurse(x, z, 10) || pups.some((_, k) => k % 8 === 0 && hypot(x - pups[k], z - pups[k + 2]) < 40)) continue;
+    const f = floorsAt(x, z); if (f.length !== 2 || f[0] > -38) continue; // open sea floor only, not the top of a rock
+    const y = f[0] + 1.3;
+    if (plantNear(x, z) || [6, 12].some((d) => [0, 1, 2, 3, 4, 5, 6, 7].some((a) => plantNear(x + cos(a * TAU / 8) * d, z + sin(a * TAU / 8) * d)))) continue; // only wide-open areas
+    let ok = true; for (let a = 0; a < 8 && ok; a++) for (const d of [3, 7]) if (!freeP(x + cos(a * TAU / 8) * d, y, z + sin(a * TAU / 8) * d, 0.85) || plantNear(x + cos(a * TAU / 8) * d, z + sin(a * TAU / 8) * d) || tunnelDark(x + cos(a * TAU / 8) * d, y, z + sin(a * TAU / 8) * d) > 0.01) ok = false;
+    if (!ok || tunnelDark(x, y, z) > 0.01) continue;
+    pups.push(x, y, z, rnd() * TAU, 0, rr(1.35, 1.65), rnd() * TAU, 0);
+  }
 
   // --- bubbles
   const VENTS = [[4, -44, -3], [4.5, -44, -3.5], [-1, -44, 2], [2, -44, -1], [5.5, -44, -7], [3, -44, -9], [6, -44, -90], [8, -44, -84], [4, -44, -93], [-9, -44, 3], [5, -35, -86], [9, -37, -92], [40, -44, 20], [-56, -44, 12], [10, -44, 80], [-2, -44, 30], [0, -44, -30], [12, -44, 2], [6, -44, -2], [46, -44, 30], [-20, -44, -103], [-52, -44, -12], [4, -44, 70], [9, -44, -74], [4, -44, -78], [14, -44, 26], [26, -44, 40], [-45, -44, -64], [-55, -44, -40], [-58, -44, 22], [-40, -44, 40], [-14, -44, 45], [-1, -44, -9], [-7, -44, -6]];
@@ -513,7 +584,7 @@ function makeWorld(D, T, flyPts, POSES) {
     for (let k = 0; k < 3; k++) mapImg[o + k] = clamp(c[k] * rel * dim * 255, 0, 255);
     mapImg[o + 3] = r <= MR ? 255 : 0;
   }
-  return { mapImg, mapH: mh, mapT: mt, gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), sharks: new Float32Array(sharks), snow };
+  return { mapImg, mapH: mh, mapT: mt, nurse: new Float32Array(nurse), pups: new Float32Array(pups), plantMap, gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), sharks: new Float32Array(sharks), snow };
 }
 const fract = (x) => x - floor(x);
 
@@ -752,6 +823,111 @@ function meshShark() {
   for (const sg of [-1, 1]) {
     wing((s) => [sg * (0.16 + 0.5 * s), -0.14 - 0.28 * s, 0.34 - 0.5 * pow(s, 1.2)], (s) => [sg * (0.17 + 0.53 * s), -0.12 - 0.31 * s, 0.04 - 0.22 * s * s], Y, 0.016, 20, 12); // pectorals
     wing((s) => [sg * (0.07 + 0.17 * s), -0.15 - 0.07 * s, -0.3 - 0.1 * s], (s) => [sg * (0.075 + 0.17 * s), -0.14 - 0.07 * s, -0.46 - 0.04 * s], Y, 0.008, 8, 8);  // pelvics
+  }
+  return m;
+}
+// nurse shark (tawny, Indo-Pacific): length ~2.7 along z (nose +z, tail -z), y up. Flat belly, broad flat head with barbels, two
+// equal dorsal fins far back, rounded paddle fins, long low tail. Same scheme as meshShark: aux = how deep in a groove (mouth,
+// gill slits, spiracles), 0..1
+// nurse shark body profile (z, half-height, half-width), shared by the mesh and by the placement that lays each shark on the ground
+const NURSE_ST = [[1.0, 0.0, 0.0], [0.9985, 0.006, 0.034], [0.992, 0.015, 0.068], [0.978, 0.027, 0.098], [0.957, 0.04, 0.121], [0.93, 0.048, 0.138], [0.9, 0.056, 0.155], [0.85, 0.07, 0.177], [0.8, 0.082, 0.197], [0.72, 0.097, 0.218], [0.65, 0.108, 0.232], [0.45, 0.122, 0.205], [0.2, 0.125, 0.175], [-0.1, 0.118, 0.15], [-0.4, 0.1, 0.122], [-0.7, 0.078, 0.092], [-1.0, 0.058, 0.064], [-1.3, 0.046, 0.048], [-1.55, 0.04, 0.042]];
+const nurseCR = (p0, p1, p2, p3, t) => 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
+const nurseAt = (z) => {
+  const ST = NURSE_ST; let i = 0; while (i < ST.length - 2 && z < ST[i + 1][0]) i++;
+  const t = clamp((ST[i][0] - z) / (ST[i][0] - ST[i + 1][0]), 0, 1), g = (k) => ST[clamp(k, 0, ST.length - 1)];
+  return [1, 2].map((c) => max(0, nurseCR(g(i - 1)[c], g(i)[c], g(i + 1)[c], g(i + 2)[c], t)) * 1.08);
+};
+// the snout is stretched: everything of the head ahead of z = 0.65 is drawn 1.5 times as far forward (nose at z = 1.175)
+const NOSE = 1.175, nurseZ = (z) => (z > 0.65 ? 0.65 + (z - 0.65) * 1.5 : z), nurseZ0 = (z) => (z > 0.65 ? 0.65 + (z - 0.65) / 1.5 : z);
+// stations along the body where each sleeping shark stores how far the ground is from its straight rest pose
+const NURSE_ZK = [1.12, 0.75, 0.3, -0.15, -0.6, -1.1, -1.6, -2.2];
+const nurseOffAt = (a, o, z) => { // world-space vertical offset at body z for the instance starting at a[o] (16 floats)
+  if (z >= NURSE_ZK[0]) return a[o + 8]; if (z <= NURSE_ZK[7]) return a[o + 15];
+  let k = 0; while (z < NURSE_ZK[k + 1]) k++;
+  const t = (NURSE_ZK[k] - z) / (NURSE_ZK[k] - NURSE_ZK[k + 1]), s = t * t * (3 - 2 * t);
+  return a[o + 8 + k] * (1 - s) + a[o + 9 + k] * s;
+};
+function meshNurse() {
+  const m = new Mesh(), M = 56;
+  const at = nurseAt;
+  const mz = (x) => 0.93 - 1.5 * x * x; // the small mouth, on the underside of the front of the head
+  // the eyes: small round eyeballs on the sides of the head, a little forward of the spiracles, under a slight brow ridge
+  const EYE = [-1, 1].map((s) => { let best = null; for (let k = 0; k < 720; k++) { const an = k / 720 * TAU, [h, wd] = at(0.86), sy = sin(an), cx = cos(an), lower = sy < 0, ys = lower ? -h * 0.52 * pow(-sy, 0.75) : h * sy, xs = wd * cx * (lower ? 1 + 0.1 * (-sy) : 1 - 0.1 * sy); if (ys > 0.02 && ys < 0.075) { const d = abs(s * xs - 0.145); if (!best || d < best[0]) best = [d, xs, ys]; } } return [best[1], best[2], 0.86]; });
+  const carve = (x, y, z) => {
+    let rd = 0, ax = 0; const w = abs(x);
+    if (z > 0.8 && w < 0.09) { const dz = z - mz(x), k = sstep(0.09, 0.06, w) * sstep(0.0, -0.05, y); rd += 0.007 * exp(-pow(dz / 0.008, 2)) * k; ax = max(ax, exp(-pow(dz / 0.011, 2)) * k * 0.7); }
+    if (w > 0.1 && z > 0.42 && z < 0.64) for (let g = 0; g < 5; g++) { // five gill slits
+      const dz = z - (0.6 - 0.036 * g - 0.1 * y), k = sstep(0.1, 0.13, w) * sstep(0.08, 0.03, y) * sstep(-0.06, -0.02, y);
+      rd += 0.007 * exp(-pow(dz / 0.008, 2)) * k; ax = max(ax, exp(-pow(dz / 0.01, 2)) * k * 0.55);
+    }
+    for (const e of EYE) { // the brow: a raised arch over the top (inboard side) of each eye, running from in front of it to behind it
+      const dx = x - e[0], dz = z - e[2], d = hypot(dx, dz), inb = -(e[0] < 0 ? -1 : 1) * dx; // inb > 0 towards the middle of the head
+      if (d < 0.05 && y > 0.0) { const arch = exp(-pow((d - 0.024) / 0.008, 2)) * sstep(-0.01, 0.012, inb); rd -= 0.017 * arch; ax = max(ax, 0); }
+      if (d < 0.04 && y > 0.0) rd += 0.0025 * exp(-pow((d - 0.017) / 0.005, 2)) * sstep(0.004, -0.014, inb); // a faint lid crease below
+    }
+    for (const s of [-1, 1]) { // spiracles: small slits just behind the eyes
+      const dx = x - s * 0.105, dz = z - 0.745, k = exp(-(dx * dx + dz * dz * 0.25) / 0.00018) * sstep(0.05, 0.09, y);
+      rd += 0.006 * k; ax = max(ax, k * 0.8);
+    }
+    const l = hypot(x, y) || 1;
+    return [x - x / l * rd, y - y / l * rd, z, ax];
+  };
+  // dense rings along the head, coarser behind
+  const zs = []; for (let z = 0.9985; z > 0.93; z -= 0.0035) zs.push(z); for (let z = 0.93; z > 0.4; z -= 0.007) zs.push(z); for (let z = 0.4; z > -1.545; z -= 0.016) zs.push(z); zs.push(-1.55);
+  const base = (a, z) => {
+    const [h, wd] = at(z), sy = sin(a), cx = cos(a);
+    // flat belly: the lower half is squashed and squared off
+    const lower = sy < 0, ys = lower ? -h * 0.52 * pow(-sy, 0.75) : h * sy, xs = wd * cx * (lower ? 1 + 0.1 * (-sy) : 1 - 0.1 * sy);
+    return [xs, ys];
+  };
+  const surf = (a, z) => { const b = base(a, z); return carve(b[0], b[1], z); };
+  const NS = zs.length, rings = [];
+  for (let j = 0; j < NS; j++) { const r = []; for (let k = 0; k < M; k++) { const p = surf(k / M * TAU, zs[j]); r.push(m.v(p[0], p[1], nurseZ(p[2]), p[3])); } rings.push(r); }
+  const nose = m.v(0, -0.006, NOSE, 0);
+  for (let k = 0; k < M; k++) m.tri(rings[0][(k + 1) % M], rings[0][k], nose);
+  for (let j = 0; j < NS - 1; j++) for (let k = 0; k < M; k++) { const k2 = (k + 1) % M; m.quad(rings[j][k], rings[j + 1][k], rings[j + 1][k2], rings[j][k2]); }
+  const last = rings[NS - 1], c0 = m.v(0, 0, -1.55, 0); for (let k = 0; k < M; k++) m.tri(last[(k + 1) % M], last[k], c0);
+  for (const e of EYE) { // eyeballs
+    const R = 0.0115, lx = e[0], ly = e[1], lz = nurseZ(e[2]), ol = hypot(lx, ly) || 1, cxe = lx - lx / ol * 0.003, cye = ly - ly / ol * 0.003, ids = [];
+    for (let la = 0; la <= 8; la++) { const row = []; for (let lo = 0; lo < 14; lo++) { const th = la / 8 * Math.PI, ph = lo / 14 * TAU; row.push(m.v(cxe + R * sin(th) * cos(ph), cye + R * cos(th), lz + R * sin(th) * sin(ph), -1)); } ids.push(row); }
+    for (let la = 0; la < 8; la++) for (let lo = 0; lo < 14; lo++) { const l2 = (lo + 1) % 14; m.quad(ids[la][lo], ids[la + 1][lo], ids[la + 1][l2], ids[la][l2]); }
+  }
+  // two barbels at the nostrils, in front of the mouth
+  for (const s of [-1, 1]) m.tube([[s * 0.042, -0.02, nurseZ(0.955)], [s * 0.046, -0.055, nurseZ(0.975)], [s * 0.05, -0.085, nurseZ(0.985)]], (k) => 0.011 * (1 - k * 0.18), 7, true, () => 0);
+  // aerofoil-section fin: leading edge F(s) and trailing edge R(s), root (s = 0) to tip (s = 1), thick along nrm
+  const wing = (F, R, nrm, th, NSp = 14, NC = 9) => {
+    const up = [];
+    for (let i = 0; i <= NSp; i++) {
+      const s = i / NSp, f = F(s), r = R(s), row = [];
+      for (let j = 0; j <= NC; j++) { const c = j / NC, cc = c * c * (3 - 2 * c) * 0.35 + c * 0.65, t = th * (sqrt(cc) * (1 - cc) / 0.385) * (1 - s * 0.85); row.push([mix(f[0], r[0], cc), mix(f[1], r[1], cc), mix(f[2], r[2], cc), t]); }
+      up.push(row);
+    }
+    const id = [[], []];
+    for (let g = 0; g < 2; g++) for (let i = 0; i <= NSp; i++) {
+      id[g].push(up[i].map((q, j) => (g && (j === 0 || j === NC || i === NSp)) ? id[0][i][j] : m.v(q[0] + nrm[0] * q[3] * (g ? -1 : 1), q[1] + nrm[1] * q[3] * (g ? -1 : 1), q[2] + nrm[2] * q[3] * (g ? -1 : 1), 0)));
+    }
+    const tri3 = (a, b, c, d) => {
+      const P = m.p, ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2], vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+      return (uy * vz - uz * vy) * d[0] + (uz * vx - ux * vz) * d[1] + (ux * vy - uy * vx) * d[2] >= 0;
+    };
+    for (let g = 0; g < 2; g++) for (let i = 0; i < NSp; i++) for (let j = 0; j < NC; j++) {
+      const a = id[g][i][j], b = id[g][i + 1][j], c = id[g][i + 1][j + 1], d = id[g][i][j + 1], dir = g ? [-nrm[0], -nrm[1], -nrm[2]] : nrm;
+      for (const [p, q, r] of [[a, b, c], [a, c, d]]) if (p !== q && q !== r && p !== r) { if (tri3(p, q, r, dir)) m.tri(p, q, r); else m.tri(p, r, q); }
+    }
+  };
+  const X = [1, 0, 0], Y = [0, 1, 0];
+  // fins are pointed and swept back, like the real animal's: chord(s) tapers to a point, the centre line runs back, the
+  // leading edge bulges forward and the trailing edge is a little concave. Every root starts well inside the body.
+  const tap = (s, full, tip, pw = 0.9) => tip + full * pow(max(1 - s, 0), pw);
+  const lead = (s, a) => a * sin(Math.PI * s);
+  wing((s) => [0, 0.075 + 0.39 * s, -0.05 - 0.5 * s + tap(s, 0.4, 0.02) / 2 + lead(s, 0.035)], (s) => [0, 0.07 + 0.385 * s, -0.05 - 0.5 * s - tap(s, 0.4, 0.02) / 2 + lead(s, 0.07)], X, 0.021, 20, 10);          // first dorsal
+  wing((s) => [0, 0.03 + 0.24 * s, -0.84 - 0.24 * s + tap(s, 0.3, 0.02) / 2 + lead(s, 0.025)], (s) => [0, 0.025 + 0.235 * s, -0.84 - 0.24 * s - tap(s, 0.3, 0.02) / 2 + lead(s, 0.05)], X, 0.017, 16, 9);           // second dorsal
+  wing((s) => [0, -0.01 - 0.15 * s, -1.0 - 0.12 * s + tap(s, 0.17, 0.015) / 2], (s) => [0, -0.015 - 0.15 * s, -1.0 - 0.12 * s - tap(s, 0.17, 0.015) / 2 + lead(s, 0.02)], X, 0.012, 10, 8);                    // anal
+  wing((s) => [0, -0.01 + 0.2 * s, -1.4 - 0.9 * s + tap(s, 0.3, 0.015) / 2 + lead(s, 0.02)], (s) => [0, -0.015 + 0.195 * s, -1.4 - 0.9 * s - tap(s, 0.3, 0.015) / 2 + lead(s, 0.04)], X, 0.02, 26, 10);              // tail, upper lobe
+  wing((s) => [0, -0.01 - 0.11 * s, -1.4 - 0.4 * s + tap(s, 0.2, 0.015) / 2], (s) => [0, -0.015 - 0.11 * s, -1.4 - 0.4 * s - tap(s, 0.2, 0.015) / 2], X, 0.014, 12, 8);                                   // tail, lower lobe
+  for (const sg of [-1, 1]) {
+    wing((s) => [sg * (0.05 + 0.74 * s), -0.045 - 0.075 * s, 0.5 - 0.5 * s + tap(s, 0.34, 0.03) / 2 + lead(s, 0.05)], (s) => [sg * (0.06 + 0.74 * s), -0.04 - 0.075 * s, 0.5 - 0.5 * s - tap(s, 0.34, 0.03) / 2 + lead(s, 0.09)], Y, 0.017, 20, 10);   // pectorals
+    wing((s) => [sg * (0.03 + 0.4 * s), -0.04 - 0.045 * s, -0.4 - 0.2 * s + tap(s, 0.2, 0.02) / 2 + lead(s, 0.025)], (s) => [sg * (0.04 + 0.4 * s), -0.035 - 0.045 * s, -0.4 - 0.2 * s - tap(s, 0.2, 0.02) / 2 + lead(s, 0.04)], Y, 0.013, 14, 8); // pelvics
   }
   return m;
 }
