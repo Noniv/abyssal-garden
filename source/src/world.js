@@ -423,6 +423,39 @@ function makeWorld(D, T, flyPts, POSES) {
     pups.push(x, y, z, rnd() * TAU, 0, rr(1.35, 1.65), rnd() * TAU, 0);
   }
 
+  // --- floor life and reef forms. 12 floats each, like the sponges: x y z scale | quaternion | material, seed, texture scale, bob
+  // kinds: 0 urchin, 1 starfish, 2 shell, 3 sea cucumber, 4 garden eel, 5 table coral, 6 brain coral, 7 anemone
+  const FL = Array.from({ length: 8 }, () => []);
+  rseed(20);
+  const sandA = (x, z) => sstep(0.42, 0.6, fbm(x * 0.04, 3, z * 0.04, 3));
+  const putF = (k, x, y, z, sc, mat, n, upish) => { const u = upish ? [n[0] * 0.3, 1, n[2] * 0.3] : n, q = qMul(qFromY(u[0], u[1], u[2]), qAxis(0, 1, 0, rnd() * TAU)); FL[k].push(x, y, z, sc, q[0], q[1], q[2], q[3], mat, rnd(), 1, 0); };
+  const okSpot = (x, y, z) => hypot(x, z) < 165 && !nearNurse(x, z, 6) && tunnelDark(x, y, z) < 0.01 && !flyPts.some((p) => hypot(x - p[0], z - p[2]) < 3);
+  const want = { 0: 170, 1: 130, 2: 260, 3: 90, 5: 80, 6: 110 }, got = [0, 0, 0, 0, 0, 0, 0, 0], clusterAt = [];
+  for (let tries = 0; tries < 60000; tries++) {
+    const k = pickV(), x = T.wp[k], y = T.wp[k + 1], z = T.wp[k + 2], ny = T.wn[k + 1], n = [T.wn[k], ny, T.wn[k + 2]]; if (!okSpot(x, y, z)) continue;
+    const sa = sandA(x, z), r = rnd();
+    if (ny > 0.9 && y < -26 && sa > 0.35) { // flat sand: shells, starfish, sea cucumbers
+      if (r < 0.35 && got[2] < want[2]) { putF(2, x, y + 0.004, z, rr(0.7, 1.3), 8, n, false); got[2]++; }
+      else if (r < 0.5 && got[1] < want[1]) { putF(1, x, y, z, rr(0.7, 1.4), 7, n, false); got[1]++; }
+      else if (r < 0.58 && got[3] < want[3]) { putF(3, x, y, z, rr(0.8, 1.5), 9, n, false); got[3]++; }
+    }
+    if (ny > 0.35 && ny < 0.97 && y < -20 && got[0] < want[0] && r < 0.12) { // urchins on rock, in small groups
+      for (let q = 0, c = 2 + (rnd() * 4 | 0); q < c; q++) { const px = x + rr(-0.6, 0.6), pz = z + rr(-0.6, 0.6), f = floorsAt(px, pz); if (f.length) { putF(0, px, f[f.length - 2], pz, rr(0.7, 1.3), 6, n, true); got[0]++; } }
+    }
+    if (ny > 0.6 && y > -42 && y < -12 && r > 0.9) { // reef forms on rock
+      if (got[5] < want[5] && rnd() < 0.5) { putF(5, x, y - 0.03, z, rr(0.7, 1.5), 13, n, true); got[5]++; }
+      else if (got[6] < want[6]) { putF(6, x, y - 0.02, z, rr(0.7, 1.4), 11, n, true); got[6]++; }
+      else if (got[7] < 40 && rnd() < 0.4) { putF(7, x, y - 0.02, z, rr(0.8, 1.3), 12, n, true); got[7]++; clusterAt.push([x, y, z]); }
+    }
+  }
+  // garden eel colonies: dozens of eels in a few patches of flat, open sand (they sink into it when you come close)
+  const colonies = [];
+  for (let tries = 0; tries < 20000 && colonies.length < 9; tries++) {
+    const k = pickV(), x = T.wp[k], y = T.wp[k + 1], z = T.wp[k + 2]; if (T.wn[k + 1] < 0.95 || y > -30 || y < -48 || sandA(x, z) < 0.5 || !okSpot(x, y, z) || plantNear(x, z) || colonies.some((c) => hypot(x - c[0], z - c[1]) < 25)) continue;
+    colonies.push([x, z]);
+    for (let q = 0, c = 28 + (rnd() * 24 | 0); q < c; q++) { const a = rnd() * TAU, d = sqrt(rnd()) * 3.2, px = x + cos(a) * d, pz = z + sin(a) * d, f = floorsAt(px, pz); if (f.length === 2 && abs(f[0] - y) < 0.4) { FL[4].push(px, f[0] - 0.05, pz, rr(0.55, 1.1), 0, 0, 0, 1, 10, rnd(), 1, 0); } }
+  }
+
   // --- bubbles
   const VENTS = [[4, -44, -3], [4.5, -44, -3.5], [-1, -44, 2], [2, -44, -1], [5.5, -44, -7], [3, -44, -9], [6, -44, -90], [8, -44, -84], [4, -44, -93], [-9, -44, 3], [5, -35, -86], [9, -37, -92], [40, -44, 20], [-56, -44, 12], [10, -44, 80], [-2, -44, 30], [0, -44, -30], [12, -44, 2], [6, -44, -2], [46, -44, 30], [-20, -44, -103], [-52, -44, -12], [4, -44, 70], [9, -44, -74], [4, -44, -78], [14, -44, 26], [26, -44, 40], [-45, -44, -64], [-55, -44, -40], [-58, -44, 22], [-40, -44, 40], [-14, -44, 45], [-1, -44, -9], [-7, -44, -6]];
   rseed(13);
@@ -480,11 +513,25 @@ function makeWorld(D, T, flyPts, POSES) {
   }
 
   // --- ground map: r magenta cover, b purple zone, a sand
-  const gm = new Uint8Array(512 * 512 * 4);
+  const GM = 1024, gm = new Uint8Array(GM * GM * 4); // 0.375 m per pixel; r magenta cover, g contact shadow, b purple zone, a sand
   for (let j = 0; j < 512; j++) for (let i = 0; i < 512; i++) {
-    const x = (i + 0.5) / 512 * 384 - 192, z = (j + 0.5) / 512 * 384 - 192, o = (i + 512 * j) * 4;
-    gm[o] = magAt(x, z) * 255; gm[o + 2] = zoneP(x, z) * 255; gm[o + 3] = sstep(0.42, 0.6, fbm(x * 0.04, 3, z * 0.04, 3)) * 255;
+    const x = (i + 0.5) / 512 * 384 - 192, z = (j + 0.5) / 512 * 384 - 192, r = magAt(x, z) * 255, b = zoneP(x, z) * 255, a = sstep(0.42, 0.6, fbm(x * 0.04, 3, z * 0.04, 3)) * 255;
+    for (let dj = 0; dj < 2; dj++) for (let di = 0; di < 2; di++) { const o = ((2 * i + di) + GM * (2 * j + dj)) * 4; gm[o] = r; gm[o + 2] = b; gm[o + 3] = a; }
   }
+  // contact shadows (g): soft dark blobs where things rest on the ground: the sleeping nurse sharks, loose rocks and boulders
+  const stamp = (x, z, rad, val) => {
+    const k = GM / 384, ci = (x + 192) * k, cj = (z + 192) * k, rp = rad * k;
+    for (let j = max(0, floor(cj - rp)); j <= min(GM - 1, Math.ceil(cj + rp)); j++) for (let i = max(0, floor(ci - rp)); i <= min(GM - 1, Math.ceil(ci + rp)); i++) {
+      const d = hypot(i + 0.5 - ci, j + 0.5 - cj) / rp; if (d >= 1) continue;
+      const o = (i + GM * j) * 4 + 1, v = val * (1 - d) * (1 - d) * 255; if (v > gm[o]) gm[o] = v;
+    }
+  };
+  for (let o = 0; o < nurse.length; o += 16) {
+    const x = nurse[o], z = nurse[o + 2], yw = nurse[o + 3], sz = nurse[o + 5], bd = nurse[o + 7], hx = sin(yw), hz = cos(yw);
+    for (let zz = -1.7; zz <= 1.1; zz += 0.15) { const bn = bendAt(zz, bd), wd = zz > -1.55 ? nurseAt(nurseZ0(zz))[1] : 0.05; stamp(x + (hx * zz + cos(yw) * bn) * sz, z + (hz * zz - sin(yw) * bn) * sz, max(0.3, wd * 1.5 + 0.2) * sz, 0.85); }
+  }
+  for (let k = 0; k < 6; k++) for (const cell of chunks[k]) for (let o = 0; o < cell.length; o += 12) stamp(cell[o], cell[o + 2], cell[o + 3] * 0.9, 0.45);
+  for (let mI = 0; mI < 4; mI++) for (const a of (solids[mI] || []).reduce((acc, _, idx, arr) => (idx % 12 === 0 ? acc.concat([arr.slice(idx, idx + 12)]) : acc), [])) stamp(a[0], a[2], a[3] * 1.0, 0.5);
 
   // --- fish schools + mantas
   // Their paths are formulas run on the GPU, so they know nothing of the rock: each orbit is checked against the terrain here
@@ -551,6 +598,9 @@ function makeWorld(D, T, flyPts, POSES) {
   // sharks: x, y, z, orbit radius, phase, angular speed (sign = direction), size, seed. Orbits shadow the mantas' (all known to be clear of rock), slightly tighter
   const sharks = [];
   for (const s of [[-50, -15, 20, 23, 1.3, 0.1, 3, 0.15], [10, -13, 86, 23, 4.1, -0.09, 3.2, 0.4], [0, -11, -80, 30, 2.2, 0.075, 3.6, 0.65], [20, -8, -20, 40, 0.5, -0.06, 4.4, 0.9], [1, -25, 3.5, 12.5, 5.2, -0.12, 2.6, 0.3]]) { const o = fitBody(s.slice(), 0); if (o) sharks.push(...o); }
+  // clownfish pairs around some of the anemones (a tight orbit; the school seed above 1.5 marks them for the shader)
+  rseed(21);
+  for (const c of clusterAt.slice(0, 22)) for (let q = 0; q < 2; q++) fish.push(c[0], c[1] + 0.32, c[2], rr(0.45, 0.7), rnd(), (q ? -1 : 1) * 1.9 / 0.55, 0.13, 2 + rnd());
 
   // --- drifting particles
   const snow = new Float32Array(9000 * 4);
@@ -584,7 +634,7 @@ function makeWorld(D, T, flyPts, POSES) {
     for (let k = 0; k < 3; k++) mapImg[o + k] = clamp(c[k] * rel * dim * 255, 0, 255);
     mapImg[o + 3] = r <= MR ? 255 : 0;
   }
-  return { mapImg, mapH: mh, mapT: mt, nurse: new Float32Array(nurse), pups: new Float32Array(pups), plantMap, gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), sharks: new Float32Array(sharks), snow };
+  return { mapImg, mapH: mh, mapT: mt, nurse: new Float32Array(nurse), floorL: FL.map((a) => new Float32Array(a)), pups: new Float32Array(pups), plantMap, gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), sharks: new Float32Array(sharks), snow };
 }
 const fract = (x) => x - floor(x);
 
@@ -929,6 +979,55 @@ function meshNurse() {
     wing((s) => [sg * (0.05 + 0.74 * s), -0.045 - 0.075 * s, 0.5 - 0.5 * s + tap(s, 0.34, 0.03) / 2 + lead(s, 0.05)], (s) => [sg * (0.06 + 0.74 * s), -0.04 - 0.075 * s, 0.5 - 0.5 * s - tap(s, 0.34, 0.03) / 2 + lead(s, 0.09)], Y, 0.017, 20, 10);   // pectorals
     wing((s) => [sg * (0.03 + 0.4 * s), -0.04 - 0.045 * s, -0.4 - 0.2 * s + tap(s, 0.2, 0.02) / 2 + lead(s, 0.025)], (s) => [sg * (0.04 + 0.4 * s), -0.035 - 0.045 * s, -0.4 - 0.2 * s - tap(s, 0.2, 0.02) / 2 + lead(s, 0.04)], Y, 0.013, 14, 8); // pelvics
   }
+  return m;
+}
+// --- things that live on the sea floor and reef (each roughly one metre or less across at scale 1)
+function meshUrchin() {
+  const m = icosphere(2, (x, y, z) => [x * 0.085, y * 0.07, z * 0.085]), ico = icosphere(1);
+  for (let k = 0; k < ico.p.length; k += 3) { const x = ico.p[k], y = ico.p[k + 1], z = ico.p[k + 2]; if (y < -0.35) continue; m.tube([[x * 0.07, y * 0.06, z * 0.07], [x * 0.15, y * 0.13, z * 0.15], [x * 0.26, y * 0.22, z * 0.26]], (q) => [0.011, 0.007, 0.002][q], 4, true); }
+  return m;
+}
+function meshStarfish() {
+  const m = new Mesh(), NA = 40, NR = 7, rings = [];
+  for (let j = 0; j <= NR; j++) {
+    const r = j / NR, ring = [];
+    for (let k = 0; k < NA; k++) { const a = k / NA * TAU, R = 0.32 + 0.68 * pow(abs(cos(2.5 * a)), 1.5), rr_ = r * R * 0.16; ring.push(m.v(cos(a) * rr_, 0.012 + 0.03 * pow(1 - r, 1.2) * (0.6 + 0.4 * R), sin(a) * rr_)); }
+    rings.push(ring);
+  }
+  const bot = []; for (let k = 0; k < NA; k++) { const a = k / NA * TAU, R = 0.32 + 0.68 * pow(abs(cos(2.5 * a)), 1.5); bot.push(m.v(cos(a) * R * 0.16, 0.002, sin(a) * R * 0.16)); } rings.push(bot);
+  for (let j = 0; j <= NR; j++) for (let k = 0; k < NA; k++) { const k2 = (k + 1) % NA; m.quad(rings[j][k], rings[j + 1][k], rings[j + 1][k2], rings[j][k2]); }
+  const c = m.v(0, 0.002, 0); for (let k = 0; k < NA; k++) m.tri(bot[k], bot[(k + 1) % NA], c);
+  return m;
+}
+function meshShell() { // a scallop: a ribbed fan
+  const m = new Mesh(), NA = 28, NR = 6, rows = [];
+  for (let j = 0; j <= NR; j++) { const r = j / NR, row = []; for (let k = 0; k <= NA; k++) { const a = (k / NA * 2 - 1) * 1.15; row.push(m.v(sin(a) * r * 0.11, 0.004 + r * 0.045 * (1 + 0.12 * cos(a * 12)) * (1 - 0.3 * r), cos(a) * r * 0.11)); } rows.push(row); }
+  for (let j = 0; j < NR; j++) for (let k = 0; k < NA; k++) m.quad(rows[j][k], rows[j + 1][k], rows[j + 1][k + 1], rows[j][k + 1]);
+  return m;
+}
+function meshCucumber() {
+  const m = new Mesh(), P = []; for (let k = 0; k < 9; k++) P.push([k * 0.04 - 0.16, 0.04 + 0.01 * sin(k * 0.8), 0.02 * sin(k * 0.6)]);
+  m.tube(P, (k) => (0.036 + 0.014 * sin(k * 2.3)) * (k === 0 || k === 8 ? 0.6 : 1), 8, true);
+  return m;
+}
+function meshEel() { // a garden eel: a thin standing tube; aux = height (the sway grows with it)
+  const m = new Mesh();
+  m.tube([[0, 0, 0], [0, 0.2, 0], [0, 0.45, 0], [0, 0.7, 0], [0, 0.9, 0], [0, 1.0, 0]], (k) => [0.02, 0.02, 0.018, 0.018, 0.02, 0.026][k], 7, true, (k) => k / 5);
+  return m;
+}
+function meshTable() { // table coral: a stalk and a wavy plate
+  const m = new Mesh(); m.tube([[0, 0, 0], [0, 0.18, 0], [0, 0.36, 0]], (k) => [0.09, 0.065, 0.06][k], 7, false);
+  const NA = 48, NR = 8, top = [], under = [];
+  for (let j = 0; j <= NR; j++) { const r = j / NR, a1 = [], a2 = []; for (let k = 0; k < NA; k++) { const a = k / NA * TAU, R = 0.75 * (1 + 0.12 * sin(7 * a) + 0.06 * sin(13 * a + 1)) * r, y = 0.38 - 0.12 * r * r + 0.02 * r * sin(a * 5); a1.push(m.v(cos(a) * R, y + 0.012, sin(a) * R)); a2.push(m.v(cos(a) * R, y - 0.022, sin(a) * R)); } top.push(a1); under.push(a2); }
+  for (let j = 0; j < NR; j++) for (let k = 0; k < NA; k++) { const k2 = (k + 1) % NA; m.quad(top[j][k], top[j + 1][k], top[j + 1][k2], top[j][k2]); m.quad(under[j][k], under[j][k2], under[j + 1][k2], under[j + 1][k]); }
+  for (let k = 0; k < NA; k++) { const k2 = (k + 1) % NA; m.quad(top[NR][k], top[NR][k2], under[NR][k2], under[NR][k]); }
+  return m;
+}
+function meshBrain() { return icosphere(3, (x, y, z) => { const yy = max(y, -0.15), lump = 1 + 0.08 * sin(x * 9) * sin(z * 9); return [x * 0.34 * lump, yy * 0.26 * lump, z * 0.34 * lump]; }); }
+function meshAnemone() { // a column of soft tentacles; aux = how far along the tentacle (the sway)
+  const m = new Mesh();
+  m.tube([[0, 0, 0], [0, 0.06, 0], [0, 0.12, 0]], (k) => [0.07, 0.065, 0.05][k], 8, false);
+  for (let k = 0; k < 56; k++) { const a = k * 2.4, rr_ = 0.012 * sqrt(k + 1) * 1.1, bx = cos(a) * rr_, bz = sin(a) * rr_; m.tube([[bx, 0.1, bz], [bx * 1.5, 0.19, bz * 1.5], [bx * 2.1, 0.27, bz * 2.1]], (q) => [0.013, 0.009, 0.004][q], 4, true, (q) => q / 2); }
   return m;
 }
 function meshFish() {

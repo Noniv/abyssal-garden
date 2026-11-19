@@ -22,7 +22,14 @@ if (!adapter) fail('No WebGPU adapter found.');
 $('w').hidden = !!navigator.userAgentData; // only Chromium-based browsers have it
 const hasTS = adapter.features.has('timestamp-query');
 const device = await adapter.requestDevice({ requiredFeatures: hasTS ? ['timestamp-query'] : [] });
-device.addEventListener('uncapturederror', (e) => console.error('GPU: ' + e.error.message));
+let gpuErrShown = 0;
+device.addEventListener('uncapturederror', (e) => { // the first GPU error is also shown on the page, so a black screen explains itself
+  console.error('GPU: ' + e.error.message);
+  if (gpuErrShown++) return;
+  const d = document.createElement('pre'); d.textContent = 'GPU error: ' + e.error.message.slice(0, 1500);
+  d.style.cssText = 'position:fixed;left:8px;top:8px;right:60px;max-height:60vh;overflow:auto;margin:0;padding:8px;background:#300c;color:#fcc;font:11px/1.3 monospace;white-space:pre-wrap;z-index:99;pointer-events:none';
+  document.body.appendChild(d);
+});
 // out of memory or a GPU timeout: reload a level lower, or on Low say what happened
 device.lost.then((l) => {
   if (l.reason === 'destroyed') return; // the page is closing
@@ -46,7 +53,7 @@ const tDummy = tex(1, 1, DEPTH, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING);
 const tWater = tex(WATER, WATER, HDR, TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { mips: 5 });
 const tDetail = tex(1024, 1024, 'rgba8unorm', TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING, { mips: 11 });
 const tVol = tex(NX / 2, NY / 2, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST, { d: NZ / 2 });
-const tMap = tex(512, 512, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST);
+const tMap = tex(1024, 1024, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST);
 
 const UB = new Float32Array(64), UBS = new Float32Array(64);
 const ubo = device.createBuffer({ size: 256, usage: BU.UNIFORM | BU.COPY_DST }), uboS = device.createBuffer({ size: 256, usage: BU.UNIFORM | BU.COPY_DST });
@@ -286,14 +293,15 @@ D = Wd.gy = T.smp = null; // with gy goes the generator's working memory (about 
 
 await say('Building set pieces…', 0.94, 1200);
 // mesh ids: 0-3 boulders, 4-6 sponges, 7-8 coral, 9 tube sponge, 10 whale fluke, 11 ship, 12 manta, 13 fish,
-// 14-20 rock chunks + pebbles, 21-22 coral LOD, 23-25 far LOD of the large rock chunks, 26 shark, 27 nurse shark
+// 14-20 rock chunks + pebbles, 21-22 coral LOD, 23-25 far LOD of the large rock chunks, 26 shark, 27 nurse shark, 28-35 floor life: urchin, starfish, shell, sea cucumber, garden eel, table coral, brain coral, anemone
 const meshes = [meshChunk(1, 3), meshChunk(7, 3), meshChunk(13, 3), meshChunk(22, 3),
   meshLathe([[0, 0, 0.5], [0.34, 0, 0.6], [0.5, 0.2, 0.85], [0.6, 0.6, 1], [0.55, 0.95, 1], [0.47, 1.08, 1], [0.38, 1.1, 0.9], [0.3, 1.0, 0.45], [0.26, 0.6, 0.15], [0, 0.35, 0.05]], 18, 0.3, 9),
   meshLathe([[0, 0, 0.5], [0.2, 0, 0.6], [0.26, 0.5, 0.85], [0.4, 1.25, 1], [0.4, 1.42, 1], [0.33, 1.48, 0.9], [0.26, 1.38, 0.4], [0.18, 0.8, 0.12], [0, 0.5, 0.05]], 16, 0.35, 8),
   meshLathe([[0, 0, 0.5], [0.5, 0, 0.7], [0.72, 0.18, 1], [0.74, 0.38, 1], [0.62, 0.5, 0.9], [0.48, 0.42, 0.45], [0.4, 0.2, 0.15], [0, 0.14, 0.06]], 18, 0.25, 10),
   meshCoral(0), meshCoral(1), meshTubes()].map((m) => m.build());
 meshes.push(meshFluke(), meshShip().build(), meshManta().build(), meshFish().build(),
-  meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build(), meshNurse().build());
+  meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build(), meshNurse().build(),
+  meshUrchin().build(), meshStarfish().build(), meshShell().build(), meshCucumber().build(), meshEel().build(), meshTable().build(), meshBrain().build(), meshAnemone().build());
 let nV = 0, nI = 0;
 for (const m of meshes) { m.v0 = nV; m.i0 = nI; nV += m.nv; nI += m.ib.length; }
 const allV = new Uint8Array(nV * 16), allI = new Uint32Array(nI);
@@ -309,6 +317,7 @@ const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibS
 const ibGl = buf(Wd.glints, BU.VERTEX), nGl = Wd.glints.length / 8;
 const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nNurse = Wd.nurse.length / 16, nPup = Wd.pups.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4;
 const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27];
+const ibFloorL = Wd.floorL.map((a) => (a.length ? buf(a, BU.VERTEX) : null));
 // the map circle: the arena picture from the world generator, with viewpoints 1-6, the player and where they look
 const mmBg = document.createElement('canvas'); mmBg.width = mmBg.height = 128; mmBg.getContext('2d').putImageData(new ImageData(Wd.mapImg, 128, 128), 0, 0);
 const mm = $('mm'), mx = mm.getContext('2d'); let mapT = 1e9;
@@ -374,7 +383,7 @@ function drawMap() {
   mx.fillStyle = '#e8fbff'; mx.shadowColor = '#000'; mx.shadowBlur = S * 0.03; mx.font = `600 ${S * 0.07 | 0}px system-ui, sans-serif`; mx.fillText(F[CY] > 0 ? 'surface' : (-F[CY] | 0) + ' m', S / 2, S * 0.9);
 }
 Q.writeTexture({ texture: tVol }, Wd.volD, { bytesPerRow: NX * 2, rowsPerImage: NY / 2 }, [NX / 2, NY / 2, NZ / 2]);
-Q.writeTexture({ texture: tMap }, Wd.gm, { bytesPerRow: 2048 }, [512, 512]);
+Q.writeTexture({ texture: tMap }, Wd.gm, { bytesPerRow: 4096 }, [1024, 1024]);
 
 // ---------------------------------------------------------------- one-time bakes: detail texture, shadow map
 {
@@ -502,7 +511,8 @@ function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
 let wetV = 0, wetT = 0, wasAbove = false, torchV = 0, torchOn = false, torchT = 0;
 function render() {
   // camera basis (right vector is horizontal)
-  const cx = F[CX], cy = F[CY], cz = F[CZ], pitch = F[PIT], yaw = F[YAW];
+  const cx = F[CX], cy = F[CY], cz = F[CZ], tS = F[TIME], dv = cy < -0.3 ? 1 : 0; // a swimmer's head never holds quite still: a slow, tiny sway
+  const pitch = F[PIT] + dv * (sin(tS * 0.53) * 0.0032 + sin(tS * 1.31 + 1.) * 0.0012), yaw = F[YAW] + dv * (sin(tS * 0.37 + 2.) * 0.0042 + sin(tS * 0.91) * 0.0015);
   const cp = cos(pitch), fy = sin(pitch), rx = cos(yaw), rz = sin(yaw), fx = cp * rz, fz = -cp * rx;
   const ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
   F[FX] = fx; F[FY] = fy; F[FZ] = fz; F[RX] = rx; F[RZ] = rz; F[UX] = ux; F[UY] = uy; F[UZ] = uz;
@@ -559,6 +569,9 @@ function render() {
   }
   r.setPipeline(pManta); r.setVertexBuffer(1, ibManta); r.drawIndexed(MANTA.ib.length, nManta, MANTA.i0, MANTA.v0, 0);
   r.setPipeline(pShark); r.setVertexBuffer(1, ibShark); r.drawIndexed(SHARK.ib.length, nShark, SHARK.i0, SHARK.v0, 0);
+  // life on the sea floor and reef forms: same shader and layout as the sponges, drawn once per kind
+  r.setPipeline(pSolid); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32');
+  for (let k = 0; k < 8; k++) if (ibFloorL[k]) { const me = meshes[28 + k]; r.setVertexBuffer(1, ibFloorL[k]); r.drawIndexed(me.ib.length, Wd.floorL[k].length / 12, me.i0, me.v0, 0); }
   if (nPup) { r.setPipeline(pPup); r.setVertexBuffer(1, ibPup); r.setVertexBuffer(2, ibPupB); r.drawIndexed(SHARK.ib.length, nPup, SHARK.i0, SHARK.v0, 0); }
   r.setPipeline(pNurse); r.setVertexBuffer(1, ibNurse); r.drawIndexed(NURSE.ib.length, nNurse, NURSE.i0, NURSE.v0, 0);
   r.setPipeline(pFish); r.setVertexBuffer(1, ibFish); r.drawIndexed(FISH.ib.length, nFish, FISH.i0, FISH.v0, 0);

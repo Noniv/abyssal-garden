@@ -313,7 +313,14 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   var o: VO;
   var sc = i.a.w;
   if (i.c.x < 1.5 && i.c.z > 1.5 && g.res.x > 0.) { sc *= 1. - ss(i.c.z * .7, i.c.z, distance(i.a.xyz, g.cam.xyz) / g.mis.z); }
-  var w = i.a.xyz + qrot(i.b, i.p * sc);
+  var lp = i.p * sc; let mm = i.c.x;
+  if (mm > 9.5 && mm < 10.5) { // a garden eel: sways in the current, and sinks into the sand when you come close
+    lp.y *= mix(.08, 1., ss(2.2, 6., distance(i.a.xyz, g.cam.xyz)));
+    let sw = vec2f(sin(g.cam.w * .8 + i.c.y * 30. + lp.y * 3.), cos(g.cam.w * .7 + i.c.y * 20. + lp.y * 2.5)) * .06 * i.n.w * i.n.w * sc;
+    lp = vec3f(lp.x + sw.x, lp.y, lp.z + sw.y);
+  }
+  if (mm > 11.5 && mm < 12.5) { let sw = vec2f(sin(g.cam.w * 1.1 + i.c.y * 9. + lp.y * 9.), cos(g.cam.w * .9 + i.c.y * 11. + lp.y * 8.)) * .035 * i.n.w * sc; lp = vec3f(lp.x + sw.x, lp.y, lp.z + sw.y); } // anemone tentacles
+  var w = i.a.xyz + qrot(i.b, lp);
   w.y += sin(g.cam.w * .3 + i.c.y * 40.) * i.c.w;
   o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = qrot(i.b, i.n.xyz); o.op = i.p * i.a.w + i.c.y * 37.; o.on = i.n.xyz;
   o.m = i.c; o.q = i.b; o.ao = i.n.w;
@@ -385,6 +392,23 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
     if (hue > .75) { alb = vec3f(.44, .18, .42); }
     alb *= (.45 + .75 * B.h) * (.7 + .3 * C.h);
     vao = i.ao * i.ao; gloss = .2; bump = 1.4; flu = .55;
+  } else if (mat == 6) { // sea urchin: black-violet with a faint sheen
+    alb = mix(vec3f(.025, .015, .035), vec3f(.075, .035, .085), A.c); gloss = .5; bump = .4;
+  } else if (mat == 7) { // starfish: orange-red, dotted
+    alb = mix(vec3f(.8, .22, .07), vec3f(.85, .45, .12), fract(sd * 3.7)); alb = mix(alb, vec3f(.95, .85, .7), ss(.6, .75, A.c) * .5); alb *= .7 + .6 * B.h; bump = 1.6; gloss = .15;
+  } else if (mat == 8) { // shell: cream with brown ribs
+    alb = mix(vec3f(.82, .74, .62), vec3f(.46, .3, .2), ss(.4, .6, fract(i.op.x * 55.)) * .5 + .15 * A.c); bump = .8; gloss = .35;
+  } else if (mat == 9) { // sea cucumber: dark olive-brown, warty
+    alb = mix(vec3f(.12, .09, .05), vec3f(.28, .2, .1), A.c * .7 + F.h * .3) * (.7 + .6 * B.h); bump = 2.2; gloss = .25;
+  } else if (mat == 10) { // garden eel: pale with dark blotches
+    alb = mix(vec3f(.82, .76, .6), vec3f(.18, .13, .08), ss(.55, .7, A.c) * .85); gloss = .3; bump = .5;
+  } else if (mat == 11) { // brain coral: green-tan with winding dark grooves
+    let gv = 1. - ss(.0, .07, abs(A.c - .5));
+    alb = mix(vec3f(.46, .5, .3), vec3f(.1, .12, .06), gv) * (.8 + .4 * B.h); bump = 1.2; flu = .2;
+  } else if (mat == 12) { // anemone: soft pale pink tentacles with violet tips
+    alb = mix(vec3f(.88, .62, .56), vec3f(.55, .2, .72), i.ao * i.ao); flu = .6; gloss = .3; bump = .3;
+  } else if (mat == 13) { // table coral: dull cream underneath, mauve or green on top
+    alb = mix(vec3f(.55, .45, .26), mix(vec3f(.42, .55, .34), vec3f(.58, .3, .52), fract(sd * 4.1)), ss(-.2, .5, n0.y)) * (.17 + .25 * B.h); bump = .9; gloss = .03; flu = 0.;
   } else {
     let hue = fract(sd * 5.73);
     alb = mix(vec3f(.80, .08, .10), vec3f(.90, .22, .40), fract(hue * 4.));
@@ -394,13 +418,34 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
     alb = mix(alb, vec3f(1., .75, .6), ss(.8, 1., i.ao) * .35);
     emi = alb * .01; flu = .75; gloss = .25; bump = 1.5;
   }
-  let rip = select(0., flt * gm.a * cos((i.wp.x * .8 + i.wp.z * .35) * 5. + A.c * 9.) * .65, mat == 0);
-  let N = normalize(qrot(i.q, normalize(on + (A.n * .85 + B.n * .65 + C.n * .45 * ss(60., 12., dist) + F.n * .5 * fk) * bump + vec3f(.8, sgro, .35) * vec3f(rip, 1., rip))));
+  // sediment: low, flat, sandy ground is sand and silt (rock stays on slopes and high up). The ripples run across the current (the same
+  // direction that drifts you), steeper on the lee side, wandering a little, and their crests shift with the view (cheap parallax)
+  let sedK = select(0., ss(.8, .95, n0.y) * (.3 + .7 * gm.a) * ss(-16., -30., i.wp.y), mat <= 1);
+  var rv = vec3f(0.);
+  let rwarp = textureSample(tD, sR, i.wp.xz * .05).a - .5;
+  let cq = cuv(i.wp) / 55. + vec2f(g.cam.w * .002, g.cam.w * .0012);
+  let cn = .5 + .25 * sin(cq.x * 5.3 + sin(cq.y * 3.1) * 1.7) + .17 * sin(cq.y * 9.1 - cq.x * 4.3 + 1.3) + .08 * sin((cq.x + cq.y) * 17.);
+  let cloudSh = 1. - .3 * ss(.5, .68, cn) * ss(-32., -4., i.wp.y);
+  if (sedK > 0.) {
+    let grain = A.c * .5 + F.h * .5;
+    var sand = mix(vec3f(.26, .22, .15), vec3f(.46, .40, .29), grain) * (.9 + .2 * B.h);
+    sand = mix(sand, vec3f(.1, .09, .07), ss(.8, .9, F.c) * .5);                               // dark grains
+    sand = mix(sand, sand * vec3f(.62, .6, .58), ss(.45, .7, big2) * .55);                       // patches of darker silt
+    let fd = vec2f(.8, .6); let Vp = normalize(g.cam.xyz - i.wp);
+    var rph = dot(i.wp.xz, fd) * 14.96 + rwarp * 7.;
+    rph += dot(Vp.xz, fd) * 14.96 * .04 * (.5 + .5 * sin(rph));                                  // parallax
+    let ph2 = rph + .6 * sin(rph);                                                               // steeper on the lee side
+    let rf = ss(45., 8., dist) * sedK;
+    rv = vec3f(fd.x, 0., fd.y) * cos(ph2) * .55 * rf;
+    sand *= 1. + .12 * sin(ph2) * rf;
+    alb = mix(alb, sand, sedK); gloss = mix(gloss, .04, sedK); bump = mix(bump, .4, sedK); flu = mix(flu, 0., sedK);
+  }
+  let N = normalize(qrot(i.q, normalize(on + (A.n * .85 + B.n * .65 + C.n * .45 * ss(60., 12., dist) + F.n * .5 * fk) * bump + vec3f(.8, sgro, .35) * vec3f(0., 1., 0.) + rv)));
   let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
   let v1 = vol(i.wp + n0 * 1.5); let v2 = vol(i.wp + n0 * 4.5);
-  let ao = (sat((v1.r - .5) * 8.) * .55 + sat((v2.r - .5) * 2.7) * .45) * vao * ss(.12, .6, hgt);
+  let ao = (sat((v1.r - .5) * 8.) * .55 + sat((v2.r - .5) * 2.7) * .45) * vao * ss(.12, .6, hgt) * (1. - .6 * gm.g);
   let z = zone(i.wp);
-  let E = sunE(i.wp.y, z) * shadow9(i.wp + n0 * .35);
+  let E = sunE(i.wp.y, z) * shadow9(i.wp + n0 * .35) * (1. - .4 * gm.g) * cloudSh;
   let ndl = sat(dot(N, L));
   let am = (amb(i.wp, N, v1.g, z) + side(i.wp, N, sat((v2.r - .5) * 2.7), z)) * ao;
   let dl = E * ndl * (.10 + mix(vec3f(.33), ca, ss(.1, .45, dot(n0, L))) * 2.5);
@@ -552,14 +597,17 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   let R = i.a.w; let t = g.cam.w;
   let ta = t * i.b.y + i.b.w * 6.3 + (h.x - .5) * (26. / R);
   let ph = i.b.w * 17.;
-  let P = i.a.xyz + vec3f(R * cos(ta), 2.2 * sin(3. * ta + ph), R * .6 * sin(ta));
-  let T = normalize(vec3f(-R * sin(ta), 6.6 * cos(3. * ta + ph), R * .6 * cos(ta))) * sign(i.b.y);
+  let ya = min(2.2, R * .35);
+  let P = i.a.xyz + vec3f(R * cos(ta), ya * sin(3. * ta + ph), R * .6 * sin(ta));
+  let T = normalize(vec3f(-R * sin(ta), 3. * ya * cos(3. * ta + ph), R * .6 * cos(ta))) * sign(i.b.y);
   let S = normalize(cross(vec3f(0., 1., 0.), T)); let Up = cross(T, S);
-  let off = S * ((h.y - .5) * 5. + sin(t * .6 + s * 40.) * .5) + Up * ((h.z - .5) * 3.2 + cos(t * .5 + s * 31.) * .4);
+  let off = (S * ((h.y - .5) * 5. + sin(t * .6 + s * 40.) * .5) + Up * ((h.z - .5) * 3.2 + cos(t * .5 + s * 31.) * .4)) * min(1., R / 10.);
   var l = i.p * i.b.z * (.75 + .5 * h.z);
   l.z += sin(t * 9. + s * 50. + l.x * 5.) * .22 * (.25 * i.b.z - l.x);
-  let w = P + off + T * l.x + Up * l.y + S * l.z;
-  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * i.n.x + Up * i.n.y + S * i.n.z; o.op = i.p; o.sd = s;
+  var c0 = P + off; let dc = c0 - g.cam.xyz; let dl = length(dc);
+  c0 += dc / max(dl, .1) * 2.6 * ss(6., 1.2, dl);                                  // they shy away from a diver who comes close
+  let w = c0 + T * l.x + Up * l.y + S * l.z;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * i.n.x + Up * i.n.y + S * i.n.z; o.op = i.p; o.sd = s + select(0., 10., i.b.w > 1.5);
   o.lt = shadow1(w);
   return o;
 }
@@ -568,6 +616,12 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   let z = zone(i.wp); let vv = vol(i.wp);
   var alb = mix(vec3f(.50, .68, .80), vec3f(.10, .22, .40), ss(-.05, .2, i.op.y));
   alb = mix(alb, vec3f(.95, .8, .3), step(.86, fract(i.sd * 7.7)) * .6);
+  if (i.sd > 5.) { // a clownfish: orange with two white bands edged in black
+    alb = vec3f(1., .38, .04);
+    let band = max(ss(.035, .02, abs(i.op.x - .17)), ss(.035, .02, abs(i.op.x + .1)));
+    alb = mix(alb, vec3f(.03, .02, .02), max(ss(.065, .04, abs(i.op.x - .17)), ss(.065, .04, abs(i.op.x + .1))) * .85);
+    alb = mix(alb, vec3f(.95, .95, .92), band);
+  }
   let E = sunE(i.wp.y, z) * i.lt;
   var c = alb * (E * (.25 + .75 * sat(dot(n, L))) + amb(i.wp, n, vv.g, z) * 1.3);
   c += E * pow(sat(dot(n, normalize(V + L))), 24.) * 1.6 + vec3f(.3, .6, .7) * pow(1. - sat(dot(n, V)), 3.) * .25 * vv.g;
@@ -954,7 +1008,7 @@ fn quad(i: u32) -> vec2f { return vec2f(f32(i & 1u), f32(i >> 1u)) * 2. - 1.; }
 @vertex fn vsSnow(@builtin(vertex_index) vi: u32, @location(0) a: vec4f) -> VO {
   var o: VO; let q = quad(vi); let t = g.cam.w;
   let B = 44.;
-  var p = a.xyz * B + vec3f(t * .22, t * .05, t * .13) + .5 * vec3f(sin(t * .3 + a.x * 60.), sin(t * .23 + a.y * 50.), cos(t * .27 + a.z * 70.));
+  var p = a.xyz * B + vec3f(t * .16, t * .04, t * .12) + .5 * vec3f(sin(t * .3 + a.x * 60.), sin(t * .23 + a.y * 50.), cos(t * .27 + a.z * 70.));
   p = g.cam.xyz + (fract((p - g.cam.xyz) / B + .5) - .5) * B;
   let d = length(p - g.cam.xyz);
   let sz = (.012 + .045 * a.w * a.w * a.w);

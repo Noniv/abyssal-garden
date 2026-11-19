@@ -76,6 +76,8 @@
   let followI = -1; window.pupFollow = (i) => { followI = i; };
   window.pupStuckLog = () => JSON.stringify(pupLog);
   window.pupRuns = (x, y, z, sz) => JSON.stringify(Array.from({ length: 24 }, (_, k) => Math.round(pupRun(x, y, z, k * 0.2618, sz, 14))));
+  window.floorInfo = () => JSON.stringify(Wd.floorL.map((a) => ({ n: a.length / 12, first: Array.from(a.slice(0, 3), (v) => +v.toFixed(1)), mid: Array.from(a.slice(Math.floor(a.length / 24) * 12, Math.floor(a.length / 24) * 12 + 3), (v) => +v.toFixed(1)) })));
+  window.viewFloor = (kind, idx, dist) => { const a = Wd.floorL[kind], o = Math.min(idx, a.length / 12 - 1) * 12, x = a[o], y = a[o + 1], z = a[o + 2]; for (let k = 0; k < 16; k++) { const an = k * 0.3927, px = x + Math.cos(an) * dist, pz = z + Math.sin(an) * dist; for (const h of [0.9, 1.5, 0.5]) { if (sdAt(px, y + h, pz) < -0.7) { lookAt(px, y + h, pz, x, y + 0.15, z); return JSON.stringify([x, y, z]); } } } return 'no free spot'; };
   window.camGet = () => [F[CX], F[CY], F[CZ], F[VX], F[VY], F[VZ]];
   const LOGN = 1 << 16, logFrame = new Float32Array(LOGN), logGpu = new Float32Array(LOGN);
   let flying = false, bench = false, last = 0, nFrame = 0, nGpu = 0;
