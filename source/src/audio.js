@@ -29,6 +29,9 @@ function mkSound(ac) {
   const pool = (n, send, type, dest = uw, lp = 0) => Array.from({ length: n }, () => { const p = N(StereoPannerNode, {}, dest, G(send, wet)), g = G(0, lp ? BQ('lowpass', lp, 0.7, p) : p); return { p, g, o: N(OscillatorNode, { type }, g) }; });
   const bub = pool(6, 0.03), brt = pool(16, 0.02), hiss = G(0, uw);
   src(1.6, BQ('bandpass', 800, 0.8, hiss)); // the inhale: a short, soft, low breath
+  // sounds with a place: the low rumble of the vents and the pressure of a blacktip swimming past, panned to where they are
+  const rum = G(0, uw), rumP = N(StereoPannerNode, {}, rum), whoosh = G(0, uw), whP = N(StereoPannerNode, {}, whoosh);
+  src(0.5, BQ('lowpass', 150, 0.7, rumP)); src(1.3, BQ('bandpass', 240, 0.8, whP));
   // above the water: wind (louder as you swim faster), a slow swell, small lapping ripples, gulls, and the splash
   const windG = G(0.12, air), swell = G(0.2, air), lap = G(0.05, air), gull = pool(3, 0.5, 'sawtooth', air, 2600), splash = G(0, out);
   src(0.8, BQ('bandpass', 520, 0.55, windG)); lfo(0.05, 0.07, windG.gain); lfo(0.083, 0.05, windG.gain);
@@ -54,6 +57,16 @@ function mkSound(ac) {
     // in the air the underwater world is a faint muffled bed and the sky's sounds come up
     const above = ly > 0.02;
     uw.gain.setTargetAtTime(above ? 0.07 : 1, t, 0.15); air.gain.setTargetAtTime(above ? 1 : 0, t, above ? 0.7 : 0.2);
+    { // nearest vent and nearest blacktip: loudness by distance, side by where they are relative to the head
+      const vt = Wd.vents; let bd = 1e9, bp = 0;
+      for (let i = 0; i < vt.length; i += 3) { const dx = vt[i] - F[CX], dz = vt[i + 2] - F[CZ], d = hypot(dx, vt[i + 1] - F[CY], dz); if (d < bd) { bd = d; bp = (dx * F[RX] + dz * F[RZ]) / (d + 0.1); } }
+      const k = max(0, 1 - (bd - 3) / 30);
+      rum.gain.setTargetAtTime(above || muted ? 0 : 0.5 * k * k, t, 0.4); rumP.pan.setTargetAtTime(max(-1, min(1, bp)), t, 0.3);
+      let wd = 1e9, wp = 0; const pu = Wd.pups;
+      for (let i = 0; i < pu.length; i += 8) { const dx = PUP[i] - F[CX], dz = PUP[i + 2] - F[CZ], d = hypot(dx, PUP[i + 1] - F[CY], dz); if (d < wd) { wd = d; wp = (dx * F[RX] + dz * F[RZ]) / (d + 0.1); } }
+      const kw = max(0, 1 - (wd - 1.5) / 13);
+      whoosh.gain.setTargetAtTime(above ? 0 : 0.35 * kw * kw * kw, t, 0.25); whP.pan.setTargetAtTime(max(-1, min(1, wp)), t, 0.2);
+    }
     windG.gain.setTargetAtTime(0.12 + 0.3 * pow(min(v / 26, 1), 1.2), t, 0.4);
     if (above !== was) { // through the surface: a splash and, going in, a few bubbles
       was = above; splash.gain.cancelScheduledValues(t); splash.gain.setValueAtTime(0.13, t); splash.gain.setTargetAtTime(0, t + 0.03, 0.12);

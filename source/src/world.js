@@ -460,8 +460,10 @@ function makeWorld(D, T, flyPts, POSES) {
   const VENTS = [[4, -44, -3], [4.5, -44, -3.5], [-1, -44, 2], [2, -44, -1], [5.5, -44, -7], [3, -44, -9], [6, -44, -90], [8, -44, -84], [4, -44, -93], [-9, -44, 3], [5, -35, -86], [9, -37, -92], [40, -44, 20], [-56, -44, 12], [10, -44, 80], [-2, -44, 30], [0, -44, -30], [12, -44, 2], [6, -44, -2], [46, -44, 30], [-20, -44, -103], [-52, -44, -12], [4, -44, 70], [9, -44, -74], [4, -44, -78], [14, -44, 26], [26, -44, 40], [-45, -44, -64], [-55, -44, -40], [-58, -44, 22], [-40, -44, 40], [-14, -44, 45], [-1, -44, -9], [-7, -44, -6]];
   rseed(13);
   for (const s of spots) if (rnd() < 0.28) VENTS.push(s);
+  const ventPts = [];
   for (const v of VENTS) {
     const n = 90 + rnd() * 70 | 0, y0 = v[1] === -44 ? gy(v[0], v[2]) : v[1];
+    ventPts.push(v[0], y0, v[2]);
     for (let i = 0; i < n; i++) {
       const sz = rnd() < 0.24 ? rr(0.1, 0.3) : rr(0.025, 0.08);
       bubbles.push(v[0] + rr(-0.3, 0.3), y0, v[2] + rr(-0.3, 0.3), sz, rnd(), rr(1.1, 2.4) * (0.6 + sz * 3), -y0 - 0.2, rr(0.05, 0.16));
@@ -601,6 +603,14 @@ function makeWorld(D, T, flyPts, POSES) {
   // clownfish pairs around some of the anemones (a tight orbit; the school seed above 1.5 marks them for the shader)
   rseed(21);
   for (const c of clusterAt.slice(0, 22)) for (let q = 0; q < 2; q++) fish.push(c[0], c[1] + 0.32, c[2], rr(0.45, 0.7), rnd(), (q ? -1 : 1) * 1.9 / 0.55, 0.13, 2 + rnd());
+  // small reef fish (yellow and blue tangs, damsels, anthias) darting in loose groups around the reefs: seed marker 3..4
+  rseed(22);
+  for (const c of clusterAt.slice(0, 70)) { const R = rr(1.3, 2.8), sg = rnd() < 0.5 ? 1 : -1, n = 5 + (rnd() * 6 | 0), y = c[1] + 0.9 + rnd() * 0.9;
+    for (let q = 0; q < n; q++) { const f = [c[0], y, c[2], R, rnd(), sg * rr(1.3, 2.1) / R, rr(0.07, 0.12), 3 + rnd()]; if (fishClear(f)) fish.push(...f); } }
+  // jellyfish drifting in open water well above the bottom, with a bell that pulses
+  rseed(23);
+  const jelly = [];
+  for (let q = 0, tries = 0; q < 34 && tries < 400; tries++) { const a = rnd() * TAU, d = sqrt(rnd()) * 95, x = d * cos(a), z = d * sin(a), y = rr(-30, -9); let ok = 1; for (let k = 0; k < 5; k++) { const ox = k === 0 ? 0 : (k & 1 ? 4 : -4), oz = k === 0 ? 0 : (k & 2 ? 4 : -4); if (gy(x + ox, z + oz) + 9 > y) ok = 0; } if (ok) { jelly.push(x, y, z, rr(0.5, 1.1), rnd(), 0, 0, 0); q++; } }
 
   // --- drifting particles
   const snow = new Float32Array(9000 * 4);
@@ -634,7 +644,7 @@ function makeWorld(D, T, flyPts, POSES) {
     for (let k = 0; k < 3; k++) mapImg[o + k] = clamp(c[k] * rel * dim * 255, 0, 255);
     mapImg[o + 3] = r <= MR ? 255 : 0;
   }
-  return { mapImg, mapH: mh, mapT: mt, nurse: new Float32Array(nurse), floorL: FL.map((a) => new Float32Array(a)), pups: new Float32Array(pups), plantMap, gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), sharks: new Float32Array(sharks), snow };
+  return { mapImg, mapH: mh, mapT: mt, nurse: new Float32Array(nurse), floorL: FL.map((a) => new Float32Array(a)), pups: new Float32Array(pups), plantMap, gy, glints: new Float32Array(glints), chunks: chunks.map(packC), props: props.map(packC), big: pack(big), bigF: pack(big, 2, 1.5), small: pack(small), solids: { data: new Float32Array(sol.data), ranges: sol.ranges }, bubbles: new Float32Array(bubbles), vents: new Float32Array(ventPts), jelly: new Float32Array(jelly), volD, gm, fish: new Float32Array(fish), mantas: new Float32Array(mantas), sharks: new Float32Array(sharks), snow };
 }
 const fract = (x) => x - floor(x);
 
@@ -1028,6 +1038,24 @@ function meshAnemone() { // a column of soft tentacles; aux = how far along the 
   const m = new Mesh();
   m.tube([[0, 0, 0], [0, 0.06, 0], [0, 0.12, 0]], (k) => [0.07, 0.065, 0.05][k], 8, false);
   for (let k = 0; k < 56; k++) { const a = k * 2.4, rr_ = 0.012 * sqrt(k + 1) * 1.1, bx = cos(a) * rr_, bz = sin(a) * rr_; m.tube([[bx, 0.1, bz], [bx * 1.5, 0.19, bz * 1.5], [bx * 2.1, 0.27, bz * 2.1]], (q) => [0.013, 0.009, 0.004][q], 4, true, (q) => q / 2); }
+  return m;
+}
+function meshJelly() { // a jellyfish in unit bell radius: aux 0..0.5 = down the bell (apex to rim), 0.5..1 = down the tentacles and arms
+  const m = new Mesh(), NA = 28, NU = 11, outer = [], inner = [];
+  for (let j = 0; j <= NU; j++) {
+    const u = j / NU, th = u * 1.72, ro = [], ri = [];
+    for (let k = 0; k < NA; k++) {
+      const a = k / NA * TAU, sc = 1 + 0.05 * u * u * sin(a * 14) + 0.05 * pow(u, 8), r = sin(th) * sc, y = cos(th) * 0.62;
+      ro.push(m.v(cos(a) * r, y, sin(a) * r, u * 0.5)); ri.push(m.v(cos(a) * r * 0.9, y * 0.9 - 0.05, sin(a) * r * 0.9, u * 0.5));
+    }
+    outer.push(ro); inner.push(ri);
+  }
+  for (let j = 0; j < NU; j++) for (let k = 0; k < NA; k++) { const k2 = (k + 1) % NA; m.quad(outer[j][k], outer[j + 1][k], outer[j + 1][k2], outer[j][k2]); m.quad(inner[j][k], inner[j][k2], inner[j + 1][k2], inner[j + 1][k]); }
+  for (let k = 0; k < NA; k++) { const k2 = (k + 1) % NA; m.quad(outer[NU][k], outer[NU][k2], inner[NU][k2], inner[NU][k]); }
+  for (let q = 0; q < 4; q++) { const a = q / 4 * TAU + 0.4, pts = []; for (let k = 0; k < 8; k++) pts.push([cos(a + k * 0.25) * (0.16 + 0.07 * sin(k * 1.3)), -0.03 - k * 0.2, sin(a + k * 0.25) * (0.16 + 0.07 * sin(k * 1.3))]);
+    m.tube(pts, (k) => 0.075 * (1 - k / 9) + 0.012, 4, true, (k) => 0.5 + 0.5 * k / 7); }
+  for (let q = 0; q < 20; q++) { const a = q / 20 * TAU, x = cos(a) * 1.03, z = sin(a) * 1.03, pts = []; for (let k = 0; k < 6; k++) pts.push([x * (1 - k * 0.04), -0.09 - k * 0.5, z * (1 - k * 0.04)]);
+    m.tube(pts, 0.012, 3, true, (k) => 0.5 + 0.5 * k / 5); }
   return m;
 }
 function meshFish() {

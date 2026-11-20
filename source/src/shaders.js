@@ -190,7 +190,7 @@ const WK = array<vec3f, 10>(vec3f(1., 2., 1.), vec3f(-2., 1., .9), vec3f(3., 1.,
 
 // ---------------------------------------------------------------- shared scene code
 const S_G = /*wgsl*/`
-struct G { vp: mat4x4f, sm: mat4x4f, cam: vec4f, right: vec4f, up: vec4f, fwd: vec4f, sun: vec4f, res: vec4f, mis: vec4f, tor: vec4f };
+struct G { vp: mat4x4f, sm: mat4x4f, cam: vec4f, right: vec4f, up: vec4f, fwd: vec4f, sun: vec4f, res: vec4f, mis: vec4f, tor: vec4f, mot: vec4f, rot: vec4f };
 const SIG = vec3f(.058, .0235, .0195);
 const KD = vec3f(.056, .0245, .0170);
 const WCOL = vec3f(.16, .58, .90);
@@ -268,6 +268,27 @@ fn caus2(p: vec3f, d: f32) -> f32 {
   let q = cuv(p);
   let c = min(pow(textureSample(tW, sR, q / 4.1).r, 1.4) * 2.6 * (.45 + textureSample(tW, sR, q.yx / 6.9 + .37).r * 1.3), 2.6);
   return mix(mix(c, .33, ss(35., 100., d)), .33, ss(-.3, .3, p.y));
+}
+fn nh(p: vec2f) -> vec2f { return fract(sin(vec2f(dot(p, vec2f(127.1, 311.7)), dot(p, vec2f(269.5, 183.3)))) * 43758.5453); }
+fn cnet(q: vec2f, t: f32) -> f32 {
+  let ip = floor(q); let fp = q - ip;
+  var d1 = 9.; var d2 = 9.;
+  for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
+    let o = vec2f(f32(x), f32(y)); let h = nh(ip + o);
+    let r = o + .5 + .36 * sin(t * (1.6 + h.yx * 1.8) + 6.2831853 * h) + .16 * sin(t * (3.4 + h * 2.6) + 40. * h.yx) - fp;
+    let d = dot(r, r);
+    if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
+  } }
+  let e = sqrt(d2) - sqrt(d1);
+  return exp(-e * 7.) * (.55 + .45 * exp(-sqrt(d1) * 1.2));
+}
+fn caus3(p: vec3f, d: f32) -> f32 {
+  var q = cuv(p) + vec2f(sin(p.z * .9 + g.cam.w * .9), cos(p.x * .8 - g.cam.w * .75)) * .16;
+  q += vec2f(sin(q.y * 7.3 + g.cam.w * 1.7) + .6 * sin(q.y * 13.1 - g.cam.w * 2.3), cos(q.x * 6.7 - g.cam.w * 1.9) + .6 * cos(q.x * 15.3 + g.cam.w * 2.1)) * .035;
+  let a = cnet(q * 1.35 + vec2f(g.cam.w * .12, 0.), g.cam.w * 1.5);
+  let b = cnet(q * .6 + vec2f(3.7, g.cam.w * -.1), g.cam.w * 1.1 + 5.);
+  let br = .78 + .22 * sin(q.x * 11. + sin(q.y * 9. + g.cam.w * 1.3) * 2. + g.cam.w) * sin(q.y * 8.3 - q.x * 3. - g.cam.w * .8);
+  return (a * .75 + b * .6) * br * (1. - ss(35., 100., d)) * (1. - ss(-.3, .3, p.y));
 }
 fn sunE(y: f32, z: f32) -> vec3f { return SUNC * exp(kd(z) * (min(y, 0.) / g.sun.y)) * (.5 + .5 * sat(-y / 30.)); }
 fn vol(p: vec3f) -> vec4f { return textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 60., 384.), 0.); }
@@ -425,7 +446,7 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
   let rwarp = textureSample(tD, sR, i.wp.xz * .05).a - .5;
   let cq = cuv(i.wp) / 55. + vec2f(g.cam.w * .002, g.cam.w * .0012);
   let cn = .5 + .25 * sin(cq.x * 5.3 + sin(cq.y * 3.1) * 1.7) + .17 * sin(cq.y * 9.1 - cq.x * 4.3 + 1.3) + .08 * sin((cq.x + cq.y) * 17.);
-  let cloudSh = 1. - .3 * ss(.5, .68, cn) * ss(-32., -4., i.wp.y);
+  let cloudSh = 1. - .12 * ss(.5, .68, cn) * ss(-32., -4., i.wp.y);
   if (sedK > 0.) {
     let grain = A.c * .5 + F.h * .5;
     var sand = mix(vec3f(.26, .22, .15), vec3f(.46, .40, .29), grain) * (.9 + .2 * B.h);
@@ -448,8 +469,10 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
   let E = sunE(i.wp.y, z) * shadow9(i.wp + n0 * .35) * (1. - .4 * gm.g) * cloudSh;
   let ndl = sat(dot(N, L));
   let am = (amb(i.wp, N, v1.g, z) + side(i.wp, N, sat((v2.r - .5) * 2.7), z)) * ao;
-  let dl = E * ndl * (.10 + mix(vec3f(.33), ca, ss(.1, .45, dot(n0, L))) * 2.5);
+  let ray = sedK * caus3(i.wp, dist); let cas = mix(ca, vec3f(.62), sedK);                                   // on sand the sun's pattern is soft and low in contrast
+  let dl = E * ndl * (.10 + mix(vec3f(.33), mix(vec3f(.33), cas, 1. - .4 * sedK), ss(.1, .45, dot(n0, L))) * 2.5);
   var c = alb * (dl + am) + emi + alb * flu * dot(dl + am, vec3f(.1, .5, .5));
+  c += E * ndl * ray * vec3f(.92, 1., 1.02) * 4.4 * (.5 + alb);                                  // light strings: the sun focused by the ripples, drawn on top of the sand
   let H = normalize(V + L);
   c += E * (.25 + ca) * pow(sat(dot(N, H)), mix(10., 70., gloss)) * gloss * ndl * 1.8;
   c += (amb(i.wp, reflect(-V, N), v1.g, z) + side(i.wp, reflect(-V, N), sat((v2.r - .5) * 2.7), z)) * ao * (.08 + gloss) * .6 * pow(1. - sat(dot(N, V)), 2.5);
@@ -478,8 +501,9 @@ struct LO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   @location(5) @interpolate(flat) sd: vec2f, @location(6) @interpolate(flat) spc: vec3f };
 fn sway(p: vec2f, h: f32, t: f32) -> vec2f {
   let ph = dot(p, vec2f(.031, .017));
-  let a = .024 * pow(max(h, 0.), 1.25);
-  return a * (vec2f(sin(t * .5 + ph + h * .09), cos(t * .37 + ph * 1.3 + h * .07)) + .35 * vec2f(sin(t * 1.3 + ph * 3. + h * .3), cos(t * 1.1 + ph * 2. + h * .23)));
+  let tide = sin(t * .21 + ph * .4);                                                  // the slow surge: everything leans one way, then the other
+  let a = .024 * pow(max(h, 0.), 1.25) * (.8 + .5 * tide * tide);
+  return vec2f(.009, .006) * pow(max(h, 0.), 1.25) * tide + a * (vec2f(sin(t * .5 + ph + h * .09), cos(t * .37 + ph * 1.3 + h * .07)) + .35 * vec2f(sin(t * 1.3 + ph * 3. + h * .3), cos(t * 1.1 + ph * 2. + h * .23)));
 }
 fn shape2(v: f32) -> f32 { return sin(3.14159 * sat(v)); }
 fn pal(h: f32) -> vec3f {
@@ -530,6 +554,17 @@ fn pal(h: f32) -> vec3f {
   p += N2 * ruf;
   let sw = sway(i.a.xz, hA + (p.y - i.a.y), t);
   p.x += sw.x; p.z += sw.y;
+  { // a swimmer pushes the plants aside: the whole plant leans away from them as one curve (nothing at the root, most at the tip),
+    // and the wake drags and sways it. Everything is worked out from the plant's root, so each blade keeps its shape
+    let rw = i.a.xz - g.cam.xz; let rd = length(rw); let hp = max(p.y - i.a.y, 0.); let hh = sat(hp * .3); let spd = min(g.mot.w / 4.5, 1.3);
+    let prox = ss(6., .8, rd) * ss(7., 2., abs(p.y - g.cam.y));
+    let dir = rw / max(rd, .15); let tg = vec2f(-dir.y, dir.x);
+    let bend = hh * hh * (2. - hh);
+    let fl = sin(t * 3.4 + i.a.x * 3. + i.a.z * 2. - hp * .5) * .5 + sin(t * 2.1 + i.a.z * 5. - hp * .3) * .3;
+    let fw = normalize(g.fwd.xz + vec2f(1e-4)); let ahead = ss(.1, .9, dot(dir, fw));
+    let pw = (dir * (.3 + 1.6 * spd) + tg * fl * .5 * spd + fw * .7 * spd * ahead) * prox * bend;
+    p = vec3f(p.x + pw.x, p.y - dot(pw, pw) / (2. * max(hp, .4)), p.z + pw.y);
+  }
   o.cp = g.vp * vec4f(p, 1.); o.wp = p; o.n = normalize(N2 + S * u * .55 - T0 * cos(v * 10. + s2 * 30. + t * .6) * u * .7 * nearK); o.uv = vec2f(u, v);
   o.col = col; o.pr = pr; o.sd = vec2f(s1, s2); o.spc = spc;
   return o;
@@ -607,7 +642,7 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   var c0 = P + off; let dc = c0 - g.cam.xyz; let dl = length(dc);
   c0 += dc / max(dl, .1) * 2.6 * ss(6., 1.2, dl);                                  // they shy away from a diver who comes close
   let w = c0 + T * l.x + Up * l.y + S * l.z;
-  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * i.n.x + Up * i.n.y + S * i.n.z; o.op = i.p; o.sd = s + select(0., 10., i.b.w > 1.5);
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * i.n.x + Up * i.n.y + S * i.n.z; o.op = i.p; o.sd = s + select(0., 10., i.b.w > 1.5) + select(0., 20., i.b.w > 3.);
   o.lt = shadow1(w);
   return o;
 }
@@ -616,7 +651,14 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   let z = zone(i.wp); let vv = vol(i.wp);
   var alb = mix(vec3f(.50, .68, .80), vec3f(.10, .22, .40), ss(-.05, .2, i.op.y));
   alb = mix(alb, vec3f(.95, .8, .3), step(.86, fract(i.sd * 7.7)) * .6);
-  if (i.sd > 5.) { // a clownfish: orange with two white bands edged in black
+  if (i.sd > 25.) { // a reef fish: yellow tang, blue tang, damsel or anthias
+    let sp = floor(fract(i.sd * 9.1) * 4.);
+    if (sp < 1.) { alb = vec3f(1., .78, .05); }
+    else if (sp < 2.) { alb = mix(vec3f(.04, .22, .95), vec3f(1., .85, .1), ss(-.2, -.3, i.op.x)); alb = mix(alb, vec3f(.02, .02, .08), ss(.0, .05, abs(i.op.y - .02)) * 0.); }
+    else if (sp < 3.) { alb = mix(vec3f(.05, .45, 1.), vec3f(.02, .03, .12), ss(.0, .15, i.op.y) * .8); }
+    else { alb = mix(vec3f(1., .3, .5), vec3f(1., .6, .15), ss(-.1, .12, i.op.y)); }
+    alb = alb * (.85 + .3 * ss(.0, -.2, i.op.y));
+  } else if (i.sd > 5.) { // a clownfish: orange with two white bands edged in black
     alb = vec3f(1., .38, .04);
     let band = max(ss(.035, .02, abs(i.op.x - .17)), ss(.035, .02, abs(i.op.x + .1)));
     alb = mix(alb, vec3f(.03, .02, .02), max(ss(.065, .04, abs(i.op.x - .17)), ss(.065, .04, abs(i.op.x + .1))) * .85);
@@ -625,7 +667,48 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   let E = sunE(i.wp.y, z) * i.lt;
   var c = alb * (E * (.25 + .75 * sat(dot(n, L))) + amb(i.wp, n, vv.g, z) * 1.3);
   c += E * pow(sat(dot(n, normalize(V + L))), 24.) * 1.6 + vec3f(.3, .6, .7) * pow(1. - sat(dot(n, V)), 3.) * .25 * vv.g;
+  c += alb * E * caus2(i.wp, length(i.wp - g.cam.xyz)) * .4;
   return fin(fog(c, i.wp, z));
+}
+@vertex fn vsJelly(i: VI) -> VO {
+  var o: VO; let t = g.cam.w; let k = i.b.x; let sz = i.a.w;
+  let P = i.a.xyz + vec3f(sin(t * .05 + k * 20.) * 5. + sin(t * .13 + k * 7.) * 1.5, sin(t * .5 + k * 9.) * 1.4, cos(t * .045 + k * 13.) * 5. + cos(t * .11 + k * 5.));
+  let au = i.n.w;
+  let u = min(au, .5) * 2.; let tn = max(au - .5, 0.) * 2.;
+  let pu = sin(t * 1.3 + k * 17.);            // the bell contracts (pu > 0) and relaxes
+  let rf = 1. + .17 * pu * (.25 + .75 * u);
+  var lp = vec3f(i.p.x * rf, i.p.y * (1. - .12 * pu * (1. - u)), i.p.z * rf);
+  // tentacles and arms trail and ripple
+  let ph = t * 1.1 + k * 5. - lp.y * 2.4;
+  lp = vec3f(lp.x + sin(ph) * .16 * tn * tn, lp.y + .05 * pu * tn, lp.z + cos(ph * .9 + 1.3) * .16 * tn * tn);
+  let yw = k * 6.3 + t * .08; let cs = cos(yw); let sn = sin(yw);
+  let rl = vec3f(cs * lp.x - sn * lp.z, lp.y, sn * lp.x + cs * lp.z);
+  let w = P + rl * sz;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w;
+  o.n = vec3f(cs * i.n.x - sn * i.n.z, i.n.y, sn * i.n.x + cs * i.n.z);
+  o.op = vec3f(au, i.p.x, i.p.z); o.sd = k; o.lt = shadow1(w);
+  return o;
+}
+@fragment fn fsJelly(i: VO) -> @location(0) vec4f {
+  var n = normalize(i.n); let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
+  if (dot(n, V) < 0.) { n = -n; }
+  let z = zone(i.wp); let vv = vol(i.wp); let t = g.cam.w;
+  let au = i.op.x; let isT = step(.5001, au); let u = min(au, .5) * 2.;
+  let fr = pow(1. - sat(dot(n, V)), 2.5);
+  let an = atan2(i.op.z, i.op.y + 1e-4);
+  let canal = ss(.16, .0, abs(fract(an * 1.2732 + i.sd * 3.) - .5) - .3) * (1. - u * .5) * (1. - isT);   // 8 radial canals
+  let gon = ss(.55, .2, length(vec2f(i.op.y, i.op.z))) * (1. - isT) * ss(.2, .6, 1. - u);                // the pale gonads
+  var alb = mix(vec3f(.62, .56, .96), vec3f(.95, .5, .8), u * (1. - isT));
+  alb = mix(alb, vec3f(.95, .75, .9), isT * .6);
+  let E = sunE(i.wp.y, z) * i.lt;
+  var c = alb * (E * (.2 + .5 * sat(dot(n, L))) + amb(i.wp, n, vv.g, z) * 1.1);
+  c += alb * E * pow(sat(dot(-V, L)), 3.) * 1.2;                                                          // sunlight shining through
+  c += vec3f(.9, .6, 1.) * (canal * .25 + gon * .35) * (E * .5 + .12);
+  c += vec3f(.45, .35, .95) * ss(-12., -36., i.wp.y) * (.12 + .5 * fr + .35 * canal + .3 * isT * (.5 + .5 * sin(t * 2. + i.op.y * 40.)));
+  c += vec3f(.5, .7, .9) * fr * .3 * vv.g;
+  let a = clamp(mix(.24 + .5 * fr + canal * .2 + gon * .25, .55, isT), 0., .9);
+  let f = min(max(fog(c, i.wp, z), vec3f(0.)), vec3f(30.));
+  return vec4f(f * a, a);
 }
 @vertex fn vsShark(i: VI) -> VO {
   var o: VO;
@@ -1024,7 +1107,31 @@ fn quad(i: u32) -> vec2f { return vec2f(f32(i & 1u), f32(i >> 1u)) * 2. - 1.; }
   let m = ss(1., .2, r);
   let z = zone(i.wp);
   let c = (sunE(i.wp.y, z) * i.pr.y * .8 + amb(i.wp, vec3f(0., 1., 0.), 1., z) * .3) * mix(vec3f(1.), vec3f(.7, 1., .9), i.pr.z);
-  return vec4f(min(max(c * m * m * i.pr.x * exp(-SIG.g * i.pr.w) * dkLit(i.wp), vec3f(0.)), vec3f(8.)), 0.);
+  let bio = step(.78, i.pr.z) * ss(-24., -40., i.wp.y) * (.55 + .45 * sin(g.cam.w * (.8 + i.pr.z) + i.pr.z * 90.));
+  let c2 = c * mix(vec3f(1.), vec3f(.15, 1., 1.3), bio) + vec3f(.02, .22, .32) * bio * 6.;
+  return vec4f(min(max(c2 * m * m * i.pr.x * exp(-SIG.g * i.pr.w) * dkLit(i.wp), vec3f(0.)), vec3f(8.)), 0.);
+}
+@vertex fn vsPuff(@builtin(vertex_index) vi: u32, @location(0) a: vec4f, @location(1) b: vec4f) -> VO {
+  var o: VO; let q = quad(vi);
+  let rot = b.y * 6.283 + g.cam.w * (.12 + .2 * b.y); let cs = cos(rot); let sn = sin(rot);
+  let qr = vec2f(q.x * cs - q.y * sn, q.x * sn + q.y * cs);
+  let w = a.xyz + (g.right.xyz * qr.x + g.up.xyz * qr.y) * a.w * 1.5;
+  o.cp = g.vp * vec4f(w, 1.); o.uv = q; o.wp = a.xyz;
+  o.pr = vec4f(b.x, shadow1(a.xyz), b.y, a.w);
+  return o;
+}
+@fragment fn fsPuff(i: VO) -> @location(0) vec4f {
+  let r = length(i.uv);
+  let an = atan2(i.uv.y, i.uv.x + 1e-4);
+  let sd = i.pr.z * 40.;
+  let rr = r / (.62 + .13 * sin(an * 3. + sd) + .08 * sin(an * 5. - sd * .43 + g.cam.w * .4) + .05 * sin(an * 9. + sd * .17));
+  let z = zone(i.wp);
+  let v = i.wp - g.cam.xyz; let d = length(v);
+  let al = ss(1., .1, rr) * i.pr.x * ss(.2, 1.3, d);
+  var c = (sunE(i.wp.y, z) * i.pr.y * .95 + amb(i.wp, vec3f(0., 1., 0.), 1., z) * 1.2) * vec3f(.66, .57, .42) * (1. - .2 * ss(.8, 0., rr));
+  let T = exp(-SIG.g * d);
+  c = c * T + fogIn(g.cam.xyz, v / d, d, z, g.sun.xyz) * (1. - T) * .6;
+  return vec4f(min(max(c * dkLit(i.wp), vec3f(0.)), vec3f(12.)) * al, al);
 }
 `;
 
@@ -1152,7 +1259,36 @@ fn sat3(x: vec3f) -> vec3f { return clamp(x, vec3f(0.), vec3f(1.)); }
       suv -= (f - c0) * m * .9 / sc * vec2f(1. / asp, 1.); lens += m + tr * .4 - .55 * ss(rad * .6, rad, de) * (1. - ss(rad, rad * 1.18, de)) * live;
     }
   }
-  var c = textureSampleLevel(tS, sC, suv, 0.).rgb + acc / ws;
+  // depth of field (focus on what is in the middle of the view) and motion blur from the swimmer's own movement, in one gather
+  var c = textureSampleLevel(tS, sC, suv, 0.).rgb;
+  {
+    let dm = vec2i(textureDimensions(tS)); let sc = f32(dm.y) / 720.; let ctr = dm / 2;
+    var inv = 0.;
+    inv += 1. / (g.fwd.w / max(textureLoad(tDp, ctr, 0), 1e-6));
+    inv += 1. / (g.fwd.w / max(textureLoad(tDp, ctr + vec2i(16, 0), 0), 1e-6));
+    inv += 1. / (g.fwd.w / max(textureLoad(tDp, ctr - vec2i(16, 0), 0), 1e-6));
+    inv += 1. / (g.fwd.w / max(textureLoad(tDp, ctr + vec2i(0, 11), 0), 1e-6));
+    inv += 1. / (g.fwd.w / max(textureLoad(tDp, ctr - vec2i(0, 11), 0), 1e-6));
+    inv = inv * .2;
+    let coc = min(sc * 6. * abs(1. / zf - inv), sc * 5.);
+    let nd = vec2f(uv.x * 2. - 1., 1. - uv.y * 2.); let zz = max(zf, .7);
+    var mv = vec2f((-g.mot.x / g.right.w + nd.x * g.mot.z) * .5, -(-g.mot.y / g.up.w + nd.y * g.mot.z) * .5) / zz + vec2f(g.rot.x * .5, -g.rot.y * .5);
+    let ml = length(mv); mv = mv * min(ml, .03) / max(ml, 1e-6);
+    if (coc > .7 || ml > .0015) {
+      var sum = c; var wsum = 1.;
+      for (var k = 0; k < 10; k++) {
+        let fk = (f32(k) + .5) / 10.; let an = f32(k) * 2.39996; let rad = sqrt(fk) * coc;
+        let tuv = suv + mv * (fk - .5) + vec2f(cos(an), sin(an)) * rad * g.res.zw;
+        let tp = clamp(vec2i(tuv * vec2f(dm)), vec2i(0), dm - 1);
+        let tz = g.fwd.w / max(textureLoad(tDp, tp, 0), 1e-6);
+        let tc = min(sc * 6. * abs(1. / tz - inv), sc * 5.);
+        let w = .1 + .9 * ss(rad * .5 - 1., rad * .5 + 1., tc);
+        sum += textureSampleLevel(tS, sC, tuv, 0.).rgb * w; wsum += w;
+      }
+      c = sum / wsum;
+    }
+  }
+  c += acc / ws;
   c *= 1. + lens * .12;
   if (g.cam.y < 0.) {
     // from below, the surface beyond the angle of the bright window is a mirror: it shows the seabed upside down. The

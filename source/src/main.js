@@ -55,8 +55,8 @@ const tDetail = tex(1024, 1024, 'rgba8unorm', TU.RENDER_ATTACHMENT | TU.TEXTURE_
 const tVol = tex(NX / 2, NY / 2, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST, { d: NZ / 2 });
 const tMap = tex(1024, 1024, 'rgba8unorm', TU.TEXTURE_BINDING | TU.COPY_DST);
 
-const UB = new Float32Array(64), UBS = new Float32Array(64);
-const ubo = device.createBuffer({ size: 256, usage: BU.UNIFORM | BU.COPY_DST }), uboS = device.createBuffer({ size: 256, usage: BU.UNIFORM | BU.COPY_DST });
+const UB = new Float32Array(72), UBS = new Float32Array(72);
+const ubo = device.createBuffer({ size: 512, usage: BU.UNIFORM | BU.COPY_DST }), uboS = device.createBuffer({ size: 512, usage: BU.UNIFORM | BU.COPY_DST });
 const WT = new Float32Array(4), uboW = device.createBuffer({ size: 16, usage: BU.UNIFORM | BU.COPY_DST });
 
 const VF = SS.VERTEX | SS.FRAGMENT;
@@ -120,6 +120,9 @@ const pSurf = scenePipe(mSurf, 'vs', 'fs', [], { strip: true, blend: { color: { 
 const pBub = scenePipe(mSpr, 'vsBub', 'fsBub', [ibBub], { strip: true, blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } });
 const ADD = { color: { srcFactor: 'one', dstFactor: 'one' }, alpha: { srcFactor: 'one', dstFactor: 'one' } };
 const pSnow = scenePipe(mSpr, 'vsSnow', 'fsSnow', [ibSnow], { strip: true, blend: ADD });
+const PREM = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } };
+const pPuf = scenePipe(mSpr, 'vsPuff', 'fsPuff', [ibBub], { strip: true, blend: PREM });
+const pJelly = scenePipe(mAnim, 'vsJelly', 'fsJelly', [vbSolid, ibAnim], { blend: PREM });
 const pGl = scenePipe(mLeaf, 'vsGl', 'fsGl', [ibBub], { strip: true, blend: ADD, constants: { ROWS: 7 } });
 const pSolidSh = shadowPipe(mSolid, 'vs', [vbSolid, ibSolid]), pTerrSh = shadowPipe(mSolid, 'vs', [vbSolid, ibSolid], { cull: 'front' });
 const pLeafSh = shadowPipe(mLeaf, 'vs', [ibLeaf], { strip: true, constants: { ROWS: 3 } });
@@ -301,7 +304,7 @@ const meshes = [meshChunk(1, 3), meshChunk(7, 3), meshChunk(13, 3), meshChunk(22
   meshCoral(0), meshCoral(1), meshTubes()].map((m) => m.build());
 meshes.push(meshFluke(), meshShip().build(), meshManta().build(), meshFish().build(),
   meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build(), meshNurse().build(),
-  meshUrchin().build(), meshStarfish().build(), meshShell().build(), meshCucumber().build(), meshEel().build(), meshTable().build(), meshBrain().build(), meshAnemone().build());
+  meshUrchin().build(), meshStarfish().build(), meshShell().build(), meshCucumber().build(), meshEel().build(), meshTable().build(), meshBrain().build(), meshAnemone().build(), meshJelly().build());
 let nV = 0, nI = 0;
 for (const m of meshes) { m.v0 = nV; m.i0 = nI; nV += m.nv; nI += m.ib.length; }
 const allV = new Uint8Array(nV * 16), allI = new Uint32Array(nI);
@@ -313,10 +316,10 @@ const solidData = new Float32Array((nSolid + 1) * 12); solidData.set(Wd.solids.d
 const ibSolids = buf(solidData, BU.VERTEX);
 const ibChunk = Wd.chunks.map((c) => buf(c.data, BU.VERTEX)), ibProp = Wd.props.map((c) => buf(c.data, BU.VERTEX));
 const ibBig = buf(new Uint8Array(Wd.big.buf), BU.VERTEX), ibBigF = buf(new Uint8Array(Wd.bigF.buf), BU.VERTEX), ibSmall = buf(new Uint8Array(Wd.small.buf), BU.VERTEX);
-const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibShark = buf(Wd.sharks, BU.VERTEX), ibNurse = buf(Wd.nurse, BU.VERTEX), ibPup = device.createBuffer({ size: max(32, Wd.pups.byteLength), usage: BU.VERTEX | BU.COPY_DST }), ibPupB = device.createBuffer({ size: max(16, Wd.pups.byteLength / 2), usage: BU.VERTEX | BU.COPY_DST }), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX);
+const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibShark = buf(Wd.sharks, BU.VERTEX), ibNurse = buf(Wd.nurse, BU.VERTEX), ibPup = device.createBuffer({ size: max(32, Wd.pups.byteLength), usage: BU.VERTEX | BU.COPY_DST }), ibPupB = device.createBuffer({ size: max(16, Wd.pups.byteLength / 2), usage: BU.VERTEX | BU.COPY_DST }), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX), ibJelly = buf(Wd.jelly, BU.VERTEX);
 const ibGl = buf(Wd.glints, BU.VERTEX), nGl = Wd.glints.length / 8;
-const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nNurse = Wd.nurse.length / 16, nPup = Wd.pups.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4;
-const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27];
+const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nNurse = Wd.nurse.length / 16, nPup = Wd.pups.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4, nJelly = Wd.jelly.length / 8;
+const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27], JELLY = meshes[36];
 const ibFloorL = Wd.floorL.map((a) => (a.length ? buf(a, BU.VERTEX) : null));
 // the map circle: the arena picture from the world generator, with viewpoints 1-6, the player and where they look
 const mmBg = document.createElement('canvas'); mmBg.width = mmBg.height = 128; mmBg.getContext('2d').putImageData(new ImageData(Wd.mapImg, 128, 128), 0, 0);
@@ -508,7 +511,7 @@ function drawCells(r, start, lo, hi, mar, indexed, verts, minD, maxD) {
     }
   }
 }
-let wetV = 0, wetT = 0, wasAbove = false, torchV = 0, torchOn = false, torchT = 0;
+let swimT = 0, mbT = 0, mbYaw = 0, mbPit = 0, wetV = 0, wetT = 0, wasAbove = false, torchV = 0, torchOn = false, torchT = 0;
 function render() {
   // camera basis (right vector is horizontal)
   const cx = F[CX], cy = F[CY], cz = F[CZ], tS = F[TIME], dv = cy < -0.3 ? 1 : 0; // a swimmer's head never holds quite still: a slow, tiny sway
@@ -538,6 +541,14 @@ function render() {
     if ((torchV > 0.5) !== torchOn) { torchOn = torchV > 0.5; torchClick(torchOn); }
     m[60] = torchV; m[61] = dkc; }
   m[56] = EXPO * (0.6 + 0.4 * ek) * (1 + 0.3 * (cy < 0 ? 0 : cy > 1 ? 1 : cy)); m[57] = RAYS; m[58] = det;
+  // motion blur: the swimmer's velocity along the view axes and the turning of the head, scaled by a short shutter time
+  { const dtm = F[TIME] - mbT; mbT = F[TIME];
+    const vx = F[VX], vy = F[VY], vz = F[VZ], spd = sqrt(vx * vx + vy * vy + vz * vz); let ms = (spd - 3) / 10; ms = ms < 0 ? 0 : ms > 1 ? 1 : ms; const sh = 0.013 * ms;
+    let dy = yaw - mbYaw; dy = dy > 3.14 ? dy - 6.2832 : dy < -3.14 ? dy + 6.2832 : dy; const dp = pitch - mbPit; mbYaw = yaw; mbPit = pitch;
+    const k = dtm > 1e-4 && dtm < 0.2 ? 1 / dtm : 0; let ry = -dy * k / (TANH * asp) * 0.013, rp = -dp * k / TANH * 0.013;
+    ry = ry > 0.03 ? 0.03 : ry < -0.03 ? -0.03 : ry; rp = rp > 0.03 ? 0.03 : rp < -0.03 ? -0.03 : rp; if (menu) { ry = rp = 0; }
+    m[64] = (vx * rx + vz * rz) * sh; m[65] = (vx * ux + vy * uy + vz * uz) * sh; m[66] = (vx * fx + vy * fy + vz * fz) * sh; m[67] = spd;
+    m[68] = ry; m[69] = rp; m[70] = 0; m[71] = 0; }
   Q.writeBuffer(ubo, 0, UB);
   WT[0] = F[TIME]; Q.writeBuffer(uboW, 0, WT);
 
@@ -584,6 +595,8 @@ function render() {
   r.setPipeline(pSurf); r.draw(4);
   r.setPipeline(pBub); r.setVertexBuffer(0, ibBubbles); r.draw(4, nBub);
   r.setPipeline(pGl); r.setVertexBuffer(0, ibGl); r.draw(4, nGl);
+  r.setPipeline(pJelly); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32'); r.setVertexBuffer(1, ibJelly); r.drawIndexed(JELLY.ib.length, nJelly, JELLY.i0, JELLY.v0, 0);
+  r.setPipeline(pPuf); r.setVertexBuffer(0, ibPuf); r.draw(4, NPUF);
   r.setPipeline(pSnow); r.setVertexBuffer(0, ibSnowB); r.draw(4, nSnow);
   r.end();
   // light shafts
@@ -801,6 +814,53 @@ function collide() {
   }
 }
 
+// ---------------------------------------------------------------- sand stirred up near the bottom
+// Swimming close to the sand pushes the water about, and the sand with it: puffs are born on the ground around the swimmer
+// (more the faster and the lower), are dragged back by the wake, then spread, drift with the current and settle.
+const NPUF = 256, PS = new Float32Array(NPUF * 11), PU = new Float32Array(NPUF * 8), ibPuf = device.createBuffer({ size: NPUF * 32, usage: BU.VERTEX | BU.COPY_DST });
+let puN = 0, puAcc = 0;
+const prn = Math.random;
+function puffStep(dt) {
+  const sp = sqrt(F[VX] * F[VX] + F[VY] * F[VY] + F[VZ] * F[VZ]);
+  let act = (sp - 0.9) / 3; act = act < 0 ? 0 : act > 1 ? 1 : act;
+  if (act > 0 && F[CY] < -0.4 && !menu) {
+    sd(0); const h = -CS[0];
+    if (h < 2.2) {
+      for (let j = 1; j < 7; j++) sd(j);
+      let gx = CS[1] - CS[2], gy = CS[3] - CS[4], gz = CS[5] - CS[6]; const l = sqrt(gx * gx + gy * gy + gz * gz);
+      if (l > 0.075 && -gy / l > 0.35) {
+        gx /= l; gy /= l; gz /= l;
+        let pr = (2.2 - h) / 1.6; pr = pr > 1 ? 1 : pr;
+        puAcc += (28 + 70 * act) * act * pr * dt;
+        const gpx = F[CX] + gx * h, gpy = F[CY] + gy * h, gpz = F[CZ] + gz * h;
+        const hl = sqrt(F[VX] * F[VX] + F[VZ] * F[VZ]) || 1, dx = F[VX] / hl, dz = F[VZ] / hl;
+        while (puAcc >= 1) {
+          puAcc -= 1; const o = puN++ % NPUF * 11, a = prn() * 6.2832, rr = 0.2 + 1.5 * sqrt(prn()), ah = prn() * 1.4 - 0.4;
+          let x = gpx + cos(a) * rr + dx * ah, z = gpz + sin(a) * rr + dz * ah, y = gpy + 0.1 + prn() * 0.25;
+          const d = sdAt(x, y, z); if (d > -0.05) y += d + 0.2; // started inside a slope: lift it clear
+          PS[o] = x; PS[o + 1] = y; PS[o + 2] = z;
+          const sc = 0.22 + 0.2 * act; // the wake drags it back and spreads it sideways
+          PS[o + 3] = -F[VX] * sc * 0.5 + (x - F[CX]) * 0.5 + (prn() - 0.5) * 0.6; PS[o + 4] = 0.12 + prn() * 0.4; PS[o + 5] = -F[VZ] * sc * 0.5 + (z - F[CZ]) * 0.5 + (prn() - 0.5) * 0.6;
+          PS[o + 6] = 0; PS[o + 7] = 4 + prn() * 6; PS[o + 8] = 0.14 + prn() * 0.16; PS[o + 9] = 0.7 + prn() * 0.8; PS[o + 10] = prn();
+        }
+      }
+    }
+  }
+  const tc = F[TIME], dr = exp(-dt * 1.5), cf = 1 - exp(-dt * 0.5);
+  for (let i = 0; i < NPUF; i++) {
+    const o = i * 11, u = i * 8, life = PS[o + 7];
+    if (PS[o + 6] >= life) { PU[u + 3] = 0; continue; }
+    const age = PS[o + 6] += dt;
+    PS[o + 3] = PS[o + 3] * dr + (0.14 - PS[o + 3] * dr) * cf; PS[o + 4] = PS[o + 4] * dr + (-0.03 - PS[o + 4] * dr) * cf; PS[o + 5] = PS[o + 5] * dr + (0.1 - PS[o + 5] * dr) * cf;
+    PS[o] += PS[o + 3] * dt + sin(tc * 0.7 + i) * 0.003; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt + cos(tc * 0.6 + i * 1.7) * 0.003;
+    const f = age / life, s0 = PS[o + 8], s1 = PS[o + 9];
+    PU[u] = PS[o]; PU[u + 1] = PS[o + 1]; PU[u + 2] = PS[o + 2]; PU[u + 3] = s0 + (s1 - s0) * (1 - exp(-age * 0.8));
+    let fi = age / 0.35; fi = fi > 1 ? 1 : fi; const fo = 1 - f;
+    PU[u + 4] = 0.62 * fi * fo * fo; PU[u + 5] = PS[o + 10];
+  }
+  Q.writeBuffer(ibPuf, 0, PU);
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   const dtr = now - F[LAST]; F[LAST] = now;
@@ -843,7 +903,9 @@ function frame(now) {
     const tc = F[TIME], cu = F[CY] < -0.4 ? (F[CY] < -1.5 ? 1 : (-F[CY] - 0.4) / 1.1) : 0, cr = sqrt(F[CX] * F[CX] + F[CZ] * F[CZ]), cw2 = cr > 105 ? (cr > 135 ? 1 : (cr - 105) / 30) : 0, cs = 0.18 * (1 + 0.15 * sin(tc * 0.09));
     const cvx = (0.8 * (1 - cw2) - F[CX] / (cr + 1) * cw2) * cs * cu, cvz = (0.6 * (1 - cw2) - F[CZ] / (cr + 1) * cw2) * cs * cu;
     const cvy = (0.42 * sin(tc * 1.05) + 0.1 * sin(tc * 2.3 + 1)) * cu;
-    const vx = F[VX] + ((sy * cp * mf + cw * mr) * sp + cvx - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * sp + cvy - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * sp + cvz - F[VZ]) * k;
+    // setting off: no pause, the thrust builds up gradually over ~1.6 s, to a top speed of 67.5% of what it used to be
+    swimT = mf !== 0 || mr !== 0 || mu !== 0 ? swimT + dt : 0; let sr = swimT / 1.6; sr = sr > 1 ? 1 : sr; sr = sr * (2 - sr); const spe = sp * 0.675 * sr;
+    const vx = F[VX] + ((sy * cp * mf + cw * mr) * spe + cvx - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * spe + cvy - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * spe + cvz - F[VZ]) * k;
     const gr = F[CY] > 0.3 ? 6 * dt : 0; // above the water you slowly sink back
     let x = F[CX] + vx * dt, y = F[CY] + (vy - gr) * dt, z = F[CZ] + vz * dt;
     const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
@@ -851,6 +913,7 @@ function frame(now) {
     F[YAW] = yaw; F[PIT] = pitch; F[VX] = vx; F[VY] = vy - gr; F[VZ] = vz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
     collide();
   }
+  puffStep(dt);
   render();
   if ((mapT += dtr) > 50) { mapT = 0; if (!menu && !mm.style.visibility) drawMap(); }
   if (hud) {
