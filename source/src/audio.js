@@ -64,8 +64,25 @@ function mkSound(ac) {
 }
 // called on every click / key / touch: builds the graph once and resumes it when the browser allows
 function sound() {
-  if (!AC) { AC = new AudioContext({ latencyHint: 'playback' }); setInterval(mkSound(AC), 100); }
-  if (AC.state === 'suspended' && !document.hidden) AC.resume();
+  if (!AC) {
+    // an iPhone takes Web Audio for "ambient" sound, which its ring/silent switch mutes: say that it is playback
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+    AC = new AudioContext({ latencyHint: 'playback' }); setInterval(mkSound(AC), 100);
+  }
+  // After the screen was locked, or the page was away, an iPhone's context says "running" again and stays silent:
+  // the first tap after that stops it and starts it anew.
+  if (acBack && !document.hidden) { acBack = false; sndLv(0, 0.005); AC.suspend().then(() => AC.resume()).then(() => sndLv(muted ? 0 : VOL, 0.3)).catch(() => {}); }
+  // (iOS has a state of its own, "interrupted", and refuses a resume that does not come from a tap: the next one tries again)
+  else if (AC.state !== 'running' && !document.hidden) AC.resume().catch(() => {});
 }
+let acBack = false;
+// a glide of the master level to v with the time constant k (seconds)
+const sndLv = (v, k) => { if (OUT) { OUT.gain.cancelScheduledValues(AC.currentTime); OUT.gain.setTargetAtTime(v, AC.currentTime, k); } };
 const mute = () => { muted = !muted; OUT.gain.setTargetAtTime(muted ? 0 : VOL, AC.currentTime, 0.08); };
-document.addEventListener('visibilitychange', () => { if (AC) document.hidden ? AC.suspend() : AC.resume(); });
+// the page goes out of sight: the sound fades in a twentieth of a second before it stops (cut off at once it clicks),
+// and comes back as gently
+document.addEventListener('visibilitychange', () => {
+  if (!AC) return;
+  if (document.hidden) { sndLv(0, 0.012); setTimeout(() => { if (document.hidden) AC.suspend(); }, 70); }
+  else { acBack = true; AC.resume().then(() => sndLv(muted ? 0 : VOL, 0.3)).catch(() => {}); }
+});
