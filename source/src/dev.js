@@ -10,6 +10,14 @@
   window.hold = (f, sprint) => { kf = f; ks = sprint || 0; };
   window.lowAt = (x, z, hgt, yaw) => { let y = -2; for (let k = 0; k < 400; k++) { const d = sdAt(x, y, z); if (d > -0.2) { y += 0.3; break; } y -= Math.max(-d - 0.1, 0.05); if (y < -56) return 'no ground'; } let d2; for (let k = 0; k < 20 && (d2 = sdAt(x, y, z)) < -(hgt || 0.7) - 0.02; k++) y -= (-d2 - (hgt || 0.7)) * 0.9; F[CX] = x; F[CY] = y; F[CZ] = z; F[YAW] = yaw || 0; F[PIT] = -0.12; F[VX] = F[VY] = F[VZ] = 0; return y; };
   window.lowFloor = (kind, idx, hgt, yaw) => { const a = Wd.floorL[kind], o = idx * 12; return [a[o], a[o + 2], window.lowAt(a[o] + 3, a[o + 2], hgt, yaw)]; };
+  window.tallRocks = (min) => { const o = []; for (let r = 60; r < 175; r += 6) for (let a = 0; a < 6.28; a += 0.1) { const x = r * Math.cos(a), z = r * Math.sin(a), g = (() => { for (let y = 16.5; y > 0; y -= 0.5) if (sdAt(x, y, z) > 0) return groundAt(x, z, y - 2.5); return -99; })(); if (g > min && g < 17) o.push([x | 0, z | 0, +g.toFixed(1)]); } return o; };
+  window.holdKeys = (f) => { kf = f; };
+  window.sdq = sdAt;
+  window.gJetOn = () => { gJet = 1.4; crown(GX, GZ, 160, 14, 7); };
+  window.rockTop = rockTop;
+  window.vyq = () => F[VY].toFixed(1);
+  window.geyser = () => [GEY, GX, GZ, GY, fly];
+  window.camPos = () => [F[CX], F[CY], F[CZ]];
   window.lowShallow = (lo, hi, skip, hgt, yaw) => { for (const k of [1, 2, 0]) { const a = Wd.floorL[k]; for (let o = 0; o < a.length; o += 12) if (a[o + 1] < hi && a[o + 1] > lo && skip-- <= 0) return [k, a[o], a[o + 1], a[o + 2], window.lowAt(a[o] + 2, a[o + 2], hgt, yaw)]; } return 'none'; };
   window.turn = (d, p) => { F[YAW] += d; F[PIT] = p; };
   window.viewJelly = (i, d) => { const a = Wd.jelly, o = i * 8, t = F[TIME], k = a[o + 4]; const x = a[o] + Math.sin(t * .05 + k * 20) * 5 + Math.sin(t * .13 + k * 7) * 1.5, y = a[o + 1] + Math.sin(t * .5 + k * 9) * 1.4, z = a[o + 2] + Math.cos(t * .045 + k * 13) * 5 + Math.cos(t * .11 + k * 5); window.camTo(x, y + 0.2, z + d, 0, 0); return [x, y, z, Wd.jelly.length / 8]; };

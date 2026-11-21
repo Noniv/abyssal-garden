@@ -79,7 +79,8 @@ fn dens(p: vec3f) -> f32 {
     let a = P[k]; let b = P[k + 1u]; k += 2u;
     d = smin(d, seg3(p + w * 2., a.xyz, b.xyz) - a.w, 2.);
   }
-  return min(d, 3. - p.y);
+  let tl = max(1. - ss(8., 16., distance(p.xz, vec2f(0., -106.))), 1. - ss(8., 16., distance(p.xz, vec2f(74., 14.))));  // two towers may stand well above the water
+  return min(d, 3. + 8. * tl - p.y);
 }
 @compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) id: vec3u) {
   if (any(id >= u.n.xyz)) { return; }
@@ -291,7 +292,7 @@ fn caus3(p: vec3f, d: f32) -> f32 {
   return (a * .75 + b * .6) * br * (1. - ss(35., 100., d)) * (1. - ss(-.3, .3, p.y));
 }
 fn sunE(y: f32, z: f32) -> vec3f { return SUNC * exp(kd(z) * (min(y, 0.) / g.sun.y)) * (.5 + .5 * sat(-y / 30.)); }
-fn vol(p: vec3f) -> vec4f { return textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 60., 384.), 0.); }
+fn vol(p: vec3f) -> vec4f { return textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 72., 384.), 0.); }
 fn amb(p: vec3f, n: vec3f, sky: f32, z: f32) -> vec3f {
   let up = n.y * .5 + .5;
   return mix(vec3f(.22, .60, .80), vec3f(.34, .56, .82), z) * exp(kd(z) * min(p.y, 0.) * 1.2) * (.3 + .7 * sky) * (.24 + .76 * up * up) * 1.3 * (.55 + .45 * sat(-p.y / 30.)) + vec3f(.003, .010, .016);
@@ -300,7 +301,7 @@ fn zone(p: vec3f) -> f32 { return mix(g.sun.w, textureSampleLevel(tM, sC, p.xz /
 fn side(p: vec3f, n: vec3f, open: f32, z: f32) -> vec3f { return mix(WCOL, PCOL, z) * exp(kd(z) * min(p.y, 0.)) * open * (1. - abs(n.y)) * .7; }
 // tunnel darkness at a point (the volume's b channel) and the torch (the camera's light: a cone with a falloff). g.tor.x is the
 // torch switch (0..1), g.tor.y the darkness at the camera itself
-fn dkAt(p: vec3f) -> f32 { return textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 60., 384.), 0.).b; }
+fn dkAt(p: vec3f) -> f32 { return textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 72., 384.), 0.).b; }
 fn torchAt(p: vec3f, n: vec3f) -> f32 {
   let v = p - g.cam.xyz; let d = max(length(v), .1); let rd = v / d;
   let nd = select(.75, sat(dot(n, -rd)), dot(n, n) > .1);
@@ -1128,7 +1129,8 @@ fn quad(i: u32) -> vec2f { return vec2f(f32(i & 1u), f32(i >> 1u)) * 2. - 1.; }
   let z = zone(i.wp);
   let v = i.wp - g.cam.xyz; let d = length(v);
   let al = ss(1., .1, rr) * i.pr.x * ss(.2, 1.3, d);
-  var c = (sunE(i.wp.y, z) * i.pr.y * .95 + amb(i.wp, vec3f(0., 1., 0.), 1., z) * 1.2) * vec3f(.66, .57, .42) * (1. - .2 * ss(.8, 0., rr));
+  let wh = step(1.5, i.pr.z);
+  var c = (sunE(i.wp.y, z) * i.pr.y * .95 + amb(i.wp, vec3f(0., 1., 0.), 1., z) * 1.2) * mix(vec3f(.66, .57, .42), vec3f(.95, .98, 1.), wh) * (1. - .2 * ss(.8, 0., rr));
   let T = exp(-SIG.g * d);
   c = c * T + fogIn(g.cam.xyz, v / d, d, z, g.sun.xyz) * (1. - T) * .6;
   return vec4f(min(max(c * dkLit(i.wp), vec3f(0.)), vec3f(12.)) * al, al);
@@ -1166,7 +1168,7 @@ const W_RAYS = S_G + W_FS + /*wgsl*/`
     let vis = textureSampleCompareLevel(tSh, sS, vec2f(s.x * .5 + .5, .5 - s.y * .5), s.z - .0006);
     let q = p.xz - sx.xz * (p.y / sx.y);
     let pat = ss(.3, .7, textureSampleLevel(tW, sR, q / 27., 2.5).r) * ss(.15, .6, textureSampleLevel(tW, sR, q.yx / 11. + .3, 2.).r);
-    let o = textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 60., 384.), 0.).r;
+    let o = textureSampleLevel(tV, sC, (p - vec3f(-192., -56., -192.)) / vec3f(384., 72., 384.), 0.).r;
     let mist = sat(1. - (o - .5) * 3.4);
     acc += exp(-sgz * t + k * (p.y / sx.y)) * (vis * (.012 + pat * 6.) * (1. + 1.2 * mist * mist));
   }

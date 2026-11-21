@@ -48,6 +48,8 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 |---|---|
 | Look around | Move the mouse |
 | Swim | `W` `A` `S` `D` or the arrow keys |
+| Geyser (easter egg) | `G` takes you to the geyser; swim over it |
+| Long tunnel | `T` drops you above its first shaft; it runs under the sea floor from one end of the world to the other (the torch switches on by itself) |
 | Up / down | `E` / `Q` |
 | Swim faster | Hold `Shift`, or tap `↑` twice quickly and hold it on the second tap |
 | Jump to a viewpoint | `1` to `6` (the spots in the screenshots) |

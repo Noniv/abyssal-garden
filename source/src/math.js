@@ -51,7 +51,7 @@ const qFromY = (nx, ny, nz) => {
 };
 
 // world grid
-const NX = 512, NY = 80, NZ = 512, VS = 0.75, OX = -192, OY = -56, OZ = -192;
+const NX = 512, NY = 96, NZ = 512, VS = 0.75, OX = -192, OY = -56, OZ = -192;
 const CELLS = 16, CELLW = 24; // culling grid over XZ
 const NCHUNK = 7; // 3 small + 3 large rock chunk meshes + pebbles
 

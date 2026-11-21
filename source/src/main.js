@@ -160,6 +160,10 @@ await say('Sculpting the seabed…', 0.25, 1200);
 // marks a load in progress (quality.js); leaving the page before it ends is not a crash
 keep('abyssalLoad', 1);
 addEventListener('pagehide', () => keep('abyssalLoad', ''));
+// Easter egg: a geyser (a little volcano on the sea floor in shallow water, throwing up big bubbles and, past the surface, spray). It simmers;
+// swim over it and it throws you 100 m up, and gravity brings you back
+let GEY = false, GX = 0, GZ = 0, GY = 0, fly = 0, gCool = 0, gJet = 0, gAcc = 0, ibGey = null, nGey = 0;
+const TUN = [];
 let D;
 {
   const prims = primBuffer();
@@ -185,6 +189,59 @@ let D;
     if (!w) continue;
     const cap = -5 + 11 * fbm(wx * 0.035, 5, wz * 0.035, 4) + 2.2 * (fbm(wx * 0.17, 9, wz * 0.17, 3) - 0.5);
     for (let y = 0; y < NY; y++) { const i = x + NX * (y + NY * z), c = cap - (OY + y * VS) + (1 - w) * 60; if (c < D[i]) D[i] = c; }
+  }
+  // the geyser: the flattest bit of shallow sea (about 3 m deep) gets a small volcano cone with a crater
+  const colTop = (wx, wz) => { const ix = round((wx - OX) / VS), iz = round((wz - OZ) / VS); for (let y = NY - 2; y > 0; y--) { const i = ix + NX * (y + NY * iz); if (D[i] > 0) return OY + (y + D[i] / (D[i] - D[i + NX])) * VS; } return -99; };
+  {
+    let best = 1e9;
+    for (let r = 12; r < 140; r += 4) for (let a = 0; a < 6.28; a += 0.1) {
+      const x = r * cos(a), z = r * sin(a), g = colTop(x, z); if (g > -1.4 || g < -7) continue;
+      let sc = abs(g + 3) + r * 0.004; for (const [ox, oz] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) { const h = colTop(x + ox, z + oz); sc += abs(h - g) * 0.5 + (h > -0.6 ? 3 : 0); }
+      if (sc < best) { best = sc; GEY = true; GX = x; GZ = z; GY = g; }
+    }
+    if (GEY) {
+      const H = 2.2, x0 = round((GX - OX) / VS), z0 = round((GZ - OZ) / VS), n = 9;
+      for (let z = z0 - n; z <= z0 + n; z++) for (let x = x0 - n; x <= x0 + n; x++) {
+        const rr = hypot(OX + x * VS - GX, OZ + z * VS - GZ); if (rr > 5.2) continue;
+        const prof = sstep(4.6, 1.0, rr), ys = GY + H * prof - 0.9 * sstep(1.0, 0.25, rr) * prof;
+        for (let y = 0; y < NY; y++) { const i = x + NX * (y + NY * z), dc = ys - (OY + y * VS) - 2.5 * (1 - sstep(0, 0.2, prof)); if (dc > D[i]) D[i] = dc; }
+      }
+      // big bubbles out of the crater, rising to the surface where they pop (vsBub loops them: xyz + size | phase, speed, height, wobble)
+      const nb = 190, gb = new Float32Array(nb * 8), y0 = GY + H - 0.9 + 0.1;
+      for (let k = 0; k < nb; k++) {
+        const s = pow(Math.random(), 1.6), o = k * 8, an = Math.random() * 6.2832, rd = 0.3 * sqrt(Math.random());
+        gb[o] = GX + cos(an) * rd; gb[o + 1] = y0; gb[o + 2] = GZ + sin(an) * rd; gb[o + 3] = 0.2 + 0.6 * s;
+        gb[o + 4] = Math.random(); gb[o + 5] = 2.1 - 0.9 * s; gb[o + 6] = -y0 + 0.9; gb[o + 7] = 0.06 + 0.06 * Math.random();
+      }
+      ibGey = buf(gb, BU.VERTEX); nGey = nb;
+    }
+  }
+  // a very long tunnel under the sea floor, from one end of the world to the other (a winding bore, about 4.4 m wide, with a few shafts
+  // up to open floor so it can be entered)
+  {
+    const TP = LTP, TY = LTY, TR = LTR;
+    const carve = (ax, ay, az, bx, by, bz, r0, wob) => {
+      const x0 = floor((min(ax, bx) - r0 - 3 - OX) / VS), x1 = floor((max(ax, bx) + r0 + 3 - OX) / VS), y0 = max(0, floor((min(ay, by) - r0 - 3 - OY) / VS)), y1 = min(NY - 1, floor((max(ay, by) + r0 + 3 - OY) / VS)), z0 = floor((min(az, bz) - r0 - 3 - OZ) / VS), z1 = floor((max(az, bz) + r0 + 3 - OZ) / VS);
+      const dx = bx - ax, dy = by - ay, dz = bz - az, ll = dx * dx + dy * dy + dz * dz;
+      for (let z = max(1, z0); z <= min(NZ - 2, z1); z++) for (let y = y0; y <= y1; y++) for (let x = max(1, x0); x <= min(NX - 2, x1); x++) {
+        const px = OX + x * VS, py = OY + y * VS, pz = OZ + z * VS;
+        let h = ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / ll; h = h < 0 ? 0 : h > 1 ? 1 : h;
+        const r = r0 * (1 + wob * (sin(px * 0.31 + pz * 0.23) * 0.5 + sin(py * 0.9 + px * 0.17) * 0.5)) + wob * 2 * sin(h * 6.2832 + px * 0.05);
+        const d = hypot(px - (ax + dx * h), py - (ay + dy * h), pz - (az + dz * h)) - r, i = x + NX * (y + NY * z);
+        if (d < D[i]) D[i] = d;
+      }
+    };
+    for (let k = 0; k + 1 < TP.length; k++) {
+      const [ax, az] = TP[k], [bx, bz] = TP[k + 1], n = Math.ceil(hypot(bx - ax, bz - az) / 8);
+      for (let j = 0; j < n; j++) { const f0 = j / n, f1 = (j + 1) / n; carve(ax + (bx - ax) * f0, TY + 1.2 * sin((k + f0) * 1.7), az + (bz - az) * f0, ax + (bx - ax) * f1, TY + 1.2 * sin((k + f1) * 1.7), az + (bz - az) * f1, TR, 0.09); }
+    }
+    // shafts: near the start, the middle and the end, at the nearest open sea floor
+    for (const k of [0, 3, 7]) {
+      let bx = 0, bz = 0, bt = -99, bs = 1e9;
+      for (let r = 0; r < 14; r += 2) for (let a = 0; a < 6.28; a += 0.5) { const x = TP[k][0] + r * cos(a), z = TP[k][1] + r * sin(a), g = colTop(x, z); if (g < -47 || g > -36) continue; const s = r + abs(g + 43); if (s < bs) { bs = s; bx = x; bz = z; bt = g; } }
+      if (bt > -90 && bs < 1e8) { carve(bx, TY, bz, bx, bt + 3, bz, 3, 0.1); carve(TP[k][0], TY, TP[k][1], bx, TY, bz, TR, 0.09); TUN.push([bx, bt, bz]); }
+    }
+    TUN.start = TP[0];
   }
   // rock connected to the seabed: each column's unbroken run up from the bottom is, and the rock above a gap
   // (overhangs, specks) is when it touches rock that is. What never connects is a speck of noise floating in
@@ -362,7 +419,7 @@ function drawMap() {
   mx.font = `${S * 0.06 | 0}px system-ui, sans-serif`; mx.textAlign = 'center'; mx.textBaseline = 'middle';
   POSES.forEach((p, i) => { const x = (p[0] + 160) * u, z = (p[2] + 160) * u; mx.fillStyle = '#03222dcc'; mx.beginPath(); mx.arc(x, z, S * 0.032, 0, 6.2832); mx.fill(); mx.fillStyle = '#e8fbff'; mx.fillText(i + 1, x, z + 0.5); });
   // tunnel mouths: an orange dot with the tunnel's letter at each end (you go in at one and have to find the other)
-  for (const t of TUNNELS) for (const e of [t.pts[0], t.pts[t.pts.length - 1]]) {
+  for (const t of TUNNELS) if (!t.nomap) for (const e of [t.pts[0], t.pts[t.pts.length - 1]]) {
     const x = (e[0] + 160) * u, z = (e[2] + 160) * u; mx.fillStyle = '#ff9d3c'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
     mx.beginPath(); mx.arc(x, z, S * 0.036, 0, 6.2832); mx.fill(); mx.stroke(); mx.fillStyle = '#03222d'; mx.fillText(t.id, x, z + 0.5);
   }
@@ -594,6 +651,7 @@ function render() {
   r.setPipeline(pBack); r.draw(4);
   r.setPipeline(pSurf); r.draw(4);
   r.setPipeline(pBub); r.setVertexBuffer(0, ibBubbles); r.draw(4, nBub);
+  if (nGey) { r.setPipeline(pBub); r.setVertexBuffer(0, ibGey); r.draw(4, nGey); }
   r.setPipeline(pGl); r.setVertexBuffer(0, ibGl); r.draw(4, nGl);
   r.setPipeline(pJelly); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32'); r.setVertexBuffer(1, ibJelly); r.drawIndexed(JELLY.ib.length, nJelly, JELLY.i0, JELLY.v0, 0);
   r.setPipeline(pPuf); r.setVertexBuffer(0, ibPuf); r.draw(4, NPUF);
@@ -686,6 +744,8 @@ const groundAt = (x, z, y0) => {
   }
   return y0 - 4;
 };
+// top of the rock above (x, z) below y0 (scanned down in 0.5 m steps, then refined), or -99 if there is none
+const rockTop = (x, z, y0) => { for (let y = y0; y > -1; y -= 0.5) if (sdAt(x, y, z) > 0) return groundAt(x, z, y - 2.5); return -99; };
 const plantDens = (x, z) => { const i = floor((x + 160) / 2.5), j = floor((z + 160) / 2.5); return i < 0 || i >= 128 || j < 0 || j >= 128 ? 255 : PLANT[i + 128 * j]; };
 const pupDir = pupSpeed.map(() => (Math.random() < 0.5 ? 1 : -1));
 const PUPB = new Float32Array(PUP.length / 2); // per shark: the body's four sideways offsets (see vsPup)
@@ -817,10 +877,21 @@ function collide() {
 // ---------------------------------------------------------------- sand stirred up near the bottom
 // Swimming close to the sand pushes the water about, and the sand with it: puffs are born on the ground around the swimmer
 // (more the faster and the lower), are dragged back by the wake, then spread, drift with the current and settle.
-const NPUF = 256, PS = new Float32Array(NPUF * 11), PU = new Float32Array(NPUF * 8), ibPuf = device.createBuffer({ size: NPUF * 32, usage: BU.VERTEX | BU.COPY_DST });
+const NPUF = 900, PS = new Float32Array(NPUF * 11), PU = new Float32Array(NPUF * 8), ibPuf = device.createBuffer({ size: NPUF * 32, usage: BU.VERTEX | BU.COPY_DST });
 let puN = 0, puAcc = 0;
 const prn = Math.random;
+// white spray (a puff with seed > 1.5): ballistic, dies at the water
+function spray(x, y, z, vx, vy, vz, life, s0, s1) {
+  const o = puN++ % NPUF * 11;
+  PS[o] = x; PS[o + 1] = y; PS[o + 2] = z; PS[o + 3] = vx; PS[o + 4] = vy; PS[o + 5] = vz; PS[o + 6] = 0; PS[o + 7] = life; PS[o + 8] = s0; PS[o + 9] = s1; PS[o + 10] = 2 + prn();
+}
+const crown = (x, z, n, up, out) => { for (let i = 0; i < n; i++) { const a = prn() * 6.2832, r = out * (0.3 + prn() * 0.7); spray(x + cos(a) * 0.4, 0.05, z + sin(a) * 0.4, cos(a) * r, up * (0.4 + prn() * 0.6), sin(a) * r, 3, 0.2, 0.5 + prn() * 0.3); } };
 function puffStep(dt) {
+  if (GEY && !menu) {
+    gAcc += 28 * dt; while (gAcc >= 1) { gAcc -= 1; const a = prn() * 6.2832, r = 0.6 * prn(), tall = prn() < 0.6; // the bubbles pop into a little spray
+      spray(GX + cos(a) * r, 0.05, GZ + sin(a) * r, cos(a) * (tall ? 0.7 : 1.6), tall ? 4 + prn() * 4 : 1.5 + prn() * 2, sin(a) * (tall ? 0.7 : 1.6), 4, tall ? 0.25 : 0.6, tall ? 0.8 : 1.1); }
+    if (gJet > 0) { gJet -= dt; for (let i = 0, n = 380 * dt; i < n; i++) { const a = prn() * 6.2832, r = 1.1 * prn(); spray(GX + cos(a) * 0.3, 0.05, GZ + sin(a) * 0.3, cos(a) * r, 18 + prn() * 28, sin(a) * r, 9, 0.25, 0.7); } }
+  }
   const sp = sqrt(F[VX] * F[VX] + F[VY] * F[VY] + F[VZ] * F[VZ]);
   let act = (sp - 0.9) / 3; act = act < 0 ? 0 : act > 1 ? 1 : act;
   if (act > 0 && F[CY] < -0.4 && !menu) {
@@ -851,8 +922,10 @@ function puffStep(dt) {
     const o = i * 11, u = i * 8, life = PS[o + 7];
     if (PS[o + 6] >= life) { PU[u + 3] = 0; continue; }
     const age = PS[o + 6] += dt;
+    if (PS[o + 10] > 1.5) { PS[o + 4] -= 9.81 * dt; PS[o] += PS[o + 3] * dt; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt; if (PS[o + 1] < 0 && PS[o + 4] < 0) { PS[o + 6] = life; PU[u + 3] = 0; continue; } }
+    else {
     PS[o + 3] = PS[o + 3] * dr + (0.14 - PS[o + 3] * dr) * cf; PS[o + 4] = PS[o + 4] * dr + (-0.03 - PS[o + 4] * dr) * cf; PS[o + 5] = PS[o + 5] * dr + (0.1 - PS[o + 5] * dr) * cf;
-    PS[o] += PS[o + 3] * dt + sin(tc * 0.7 + i) * 0.003; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt + cos(tc * 0.6 + i * 1.7) * 0.003;
+    PS[o] += PS[o + 3] * dt + sin(tc * 0.7 + i) * 0.003; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt + cos(tc * 0.6 + i * 1.7) * 0.003; }
     const f = age / life, s0 = PS[o + 8], s1 = PS[o + 9];
     PU[u] = PS[o]; PU[u + 1] = PS[o + 1]; PU[u + 2] = PS[o + 2]; PU[u + 3] = s0 + (s1 - s0) * (1 - exp(-age * 0.8));
     let fi = age / 0.35; fi = fi > 1 ? 1 : fi; const fo = 1 - f;
@@ -906,12 +979,29 @@ function frame(now) {
     // setting off: no pause, the thrust builds up gradually over ~1.6 s, to a top speed of 67.5% of what it used to be
     swimT = mf !== 0 || mr !== 0 || mu !== 0 ? swimT + dt : 0; let sr = swimT / 1.6; sr = sr > 1 ? 1 : sr; sr = sr * (2 - sr); const spe = sp * 0.675 * sr;
     const vx = F[VX] + ((sy * cp * mf + cw * mr) * spe + cvx - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * spe + cvy - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * spe + cvz - F[VZ]) * k;
-    const gr = F[CY] > 0.3 ? 6 * dt : 0; // above the water you slowly sink back
-    let x = F[CX] + vx * dt, y = F[CY] + (vy - gr) * dt, z = F[CZ] + vz * dt;
+    // out of the water, on top of rock: you walk (eye 1.7 m over the ground, slower, no flying); off a ledge you fall
+    if (GEY && !fly) { gCool -= dt; if (gCool <= 0 && F[CY] > GY + 0.3 && F[CY] < 1.4 && hypot(F[CX] - GX, F[CZ] - GZ) < 1.8) { fly = 1; F[VY] = 45.2; F[VX] *= 0.3; F[VZ] *= 0.3; gJet = 1.4; crown(GX, GZ, 160, 14, 7); } }
+    const gh = F[CY] > 0 && F[CY] < 14 ? groundAt(F[CX], F[CZ], F[CY] - 2.2) : -99, walk = F[CY] > 0 && gh > 0.15 && F[CY] - gh < 2.6;
+    if (fly && (F[CY] < 0.2 || walk) && F[VY] < 0) { fly = 0; gCool = 4; if (F[CY] < 0.5) crown(F[CX], F[CZ], 200, 12, 8); }
+    let wvx = vx, wvy = vy, wvz = vz;
+    if (walk) {
+      const sw = ks || ka ? 6.5 : 3.6, kw = 1 - exp(-dt * 8), fx = sy * mf + cw * mr, fz = -cw * mf + sy * mr, fl = hypot(fx, fz) || 1, m = fl > 1 ? 1 / fl : 1;
+      wvx = F[VX] + (fx * m * sw - F[VX]) * kw; wvz = F[VZ] + (fz * m * sw - F[VZ]) * kw;
+      wvy = (gh + 1.7 - F[CY]) * 8; wvy = wvy > 5 ? 5 : wvy < -9 ? -9 : wvy;
+    }
+    // swimming at the surface into rock that rises out of the water: you haul yourself up it (and over the top, into a walk)
+    let climb = false;
+    if (!walk && !fly && F[CY] > -0.8 && F[CY] < 15 && mf > 0) {
+      const top = rockTop(F[CX] + sy * 1.2, F[CZ] - cw * 1.2, F[CY] + 3);
+      if (top > 0.3 && top + 2 > F[CY]) { climb = true; wvy = (top + 1.9 - F[CY]) * 5; wvy = wvy > 4.5 ? 4.5 : wvy < -2 ? -2 : wvy; }
+    }
+    if (fly) { const kf2 = 1 - exp(-dt * 0.9), fx = sy * mf + cw * mr, fz = -cw * mf + sy * mr; wvx = F[VX] + (fx * 5 - F[VX]) * kf2; wvz = F[VZ] + (fz * 5 - F[VZ]) * kf2; wvy = F[VY] - 9.81 * dt; }
+    const gr = !walk && !fly && !climb && F[CY] > 0.3 ? 14 * dt : 0; // above the water you slowly sink back
+    let x = F[CX] + wvx * dt, y = F[CY] + (wvy - gr) * dt, z = F[CZ] + wvz * dt;
     const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
-    y = y < -52 ? -52 : y > 3.4 ? 3.4 : y;
-    F[YAW] = yaw; F[PIT] = pitch; F[VX] = vx; F[VY] = vy - gr; F[VZ] = vz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
-    collide();
+    const ymax = fly ? 140 : walk || climb ? 18 : 3.4; y = y < -52 ? -52 : y > ymax ? ymax : y;
+    F[YAW] = yaw; F[PIT] = pitch; F[VX] = wvx; F[VY] = wvy - gr; F[VZ] = wvz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
+    if (F[CY] < 14) collide(); else { F[CX] += F[MX]; F[CY] += F[MY]; F[CZ] += F[MZ]; } // (above the rock there is nothing to hit)
   }
   puffStep(dt);
   render();
@@ -944,6 +1034,8 @@ const key = (e, v) => {
       else if (e.code >= 'Digit1' && e.code <= 'Digit6') lookAt(...POSES[e.code.charCodeAt(5) - 49]);
       else if (e.code === 'Digit7') nurseTour();
       else if (e.code === 'Digit8') pupTour();
+      else if (e.code === 'KeyT' && TUN.length) { const t = TUN[0]; for (let k = 0; k < 24; k++) { const an = k * 0.2618, cx = t[0] + cos(an) * 8, cz = t[2] + sin(an) * 8, cy = t[1] + 3.5; if (sdAt(cx, cy, cz) < -0.9) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; lookAt(cx, cy, cz, t[0], t[1] - 1, t[2]); break; } } } // the tunnel's first shaft: in front of its mouth
+      else if (e.code === 'KeyG' && GEY) { for (let k = 0; k < 24; k++) { const an = k * 0.2618, cx = GX + cos(an) * 7, cz = GZ + sin(an) * 7; if (sdAt(cx, GY + 2.7, cz) < -0.9 && groundAt(cx, cz, GY) < GY + 1) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; lookAt(cx, GY + 2.7, cz, GX, GY + 3.2, GZ); break; } } } // the geyser easter egg: stand in front of it
     }
   }
 };

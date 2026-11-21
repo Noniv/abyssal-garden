@@ -30,10 +30,10 @@ const MESAS = [
   [30, -45, 35, -27, 9, -9, 4, 2], [37, -20, 31, -3, 11, -16, 3, 2], [32, 5, 35, 9, 7, -8, 4, 2],          // east wall
   [19, -15, 19, -15, 4.4, -6, 2, 1.5],   // pillar with window
   [6, -88, 6, -88, 10, -34, 0, 0],       // mound in the kelp basin
-  [0, -106, 0, -106, 8, 3, 2, 2],        // pillar reaching the surface
+  [0, -106, 0, -106, 9, 9, 2, 2],        // pillar reaching the surface
   [44, 6, 47, -8, 7, -17, 3, 1],         // ship supports
   [33, 29, 37, 12, 9, -19, -6.5, 0],     // sloped sunlit wall beside the wreck
-  [74, 14, 74, 14, 8, -15, 3, 1],
+  [74, 14, 74, 14, 9, 7, 3, 1],
   [-84, -34, -80, -12, 10, -7, 6, 2], [-78, -6, -83, 12, 12, -13, 5, 2], [-82, 18, -79, 32, 9, -8, 6, 2],   // sponge canyon west wall
   [-17, 62, -19, 78, 10, -6, 9, 3], [-21, 84, -18, 100, 11, -9, 8, 3],     // grotto overhang cliff
   [22, 67, 24, 80, 7, -11, 6, 2],        // grotto coral rock
@@ -64,10 +64,22 @@ const TUNNELS = [
   { id: 'C', r: 3.4, pts: [[-83, -30, -56], [-83, -30, -46], [-81, -29, -38], [-84, -31, -28], [-79, -29, -18], [-80, -31, -8], [-83, -29, 2], [-80, -31, 12], [-79, -30, 24], [-79, -30, 42]] },
   { id: 'D', r: 2.7, pts: [[-17, -29, -108], [-9, -29, -105], [-2, -27, -109], [3, -30, -103], [8, -28, -107], [17, -29, -104]] },
 ];
+// the very long tunnel under the sea floor, from one end of the world to the other (carved by main.js, which also digs its shafts):
+// registered here so that it is dark inside and the torch switches on
+const LTP = [[-146, 18], [-112, 34], [-72, 8], [-34, -26], [8, -12], [48, 26], [92, 38], [146, 14]], LTY = -50.5, LTR = 2.3;
+{
+  const pts = [];
+  for (let k = 0; k + 1 < LTP.length; k++) {
+    const [ax, az] = LTP[k], [bx, bz] = LTP[k + 1], n = Math.ceil(hypot(bx - ax, bz - az) / 8);
+    for (let j = 0; j < n; j++) { const f = j / n; pts.push([ax + (bx - ax) * f, LTY + 1.2 * Math.sin((k + f) * 1.7), az + (bz - az) * f]); }
+  }
+  pts.push([LTP[LTP.length - 1][0], LTY + 1.2 * Math.sin((LTP.length - 1) * 1.7), LTP[LTP.length - 1][1]]);
+  TUNNELS.push({ id: 'E', r: LTR, pts, nocarve: true, nomap: true, closed: true });
+}
 for (const t of TUNNELS) {
   t.cum = [0]; for (let i = 1; i < t.pts.length; i++) t.cum.push(t.cum[i - 1] + hypot(t.pts[i][0] - t.pts[i - 1][0], t.pts[i][1] - t.pts[i - 1][1], t.pts[i][2] - t.pts[i - 1][2]));
   t.len = t.cum[t.cum.length - 1];
-  for (let i = 0; i < t.pts.length - 1; i++) HOLES.push([...t.pts[i], t.r, ...t.pts[i + 1]]);
+  if (!t.nocarve) for (let i = 0; i < t.pts.length - 1; i++) HOLES.push([...t.pts[i], t.r, ...t.pts[i + 1]]);
 }
 // how dark it is at a point: 1 inside a tunnel, fading out through its wall, and from nothing at a mouth to full dark ~11 m in
 function tunnelDark(x, y, z, only) {
@@ -77,7 +89,7 @@ function tunnelDark(x, y, z, only) {
     const h = clamp(((x - a[0]) * bx + (y - a[1]) * by + (z - a[2]) * bz) / l2, 0, 1);
     const dist = hypot(x - a[0] - bx * h, y - a[1] - by * h, z - a[2] - bz * h);
     if (dist > t.r * 1.5 + 0.5) continue;
-    const s = t.cum[i] + h * Math.sqrt(l2), k = sstep(t.r * 1.5 + 0.5, t.r * 0.95, dist) * sstep(1, 11, min(s, t.len - s));
+    const s = t.cum[i] + h * Math.sqrt(l2), k = sstep(t.r * 1.5 + 0.5, t.r * 0.95, dist) * (t.closed ? 1 : sstep(1, 11, min(s, t.len - s)));
     if (k > best) best = k;
   }
   return best;
