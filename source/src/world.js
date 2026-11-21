@@ -66,7 +66,7 @@ const TUNNELS = [
 ];
 // the very long tunnel under the sea floor, from one end of the world to the other (carved by main.js, which also digs its shafts):
 // registered here so that it is dark inside and the torch switches on
-const LTP = [[-146, 18], [-112, 34], [-72, 8], [-34, -26], [8, -12], [48, 26], [92, 38], [146, 14]], LTY = -50.5, LTR = 2.3;
+const LTP = [[-146, 18], [-112, 34], [-72, 8], [-34, -26], [8, -12], [48, 26], [92, 38], [138, 14]], LTY = -50.5, LTR = 2.3;
 {
   const pts = [];
   for (let k = 0; k + 1 < LTP.length; k++) {

@@ -50,6 +50,8 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 | Swim | `W` `A` `S` `D` or the arrow keys |
 | Geyser (easter egg) | `G` takes you to the geyser; swim over it |
 | Long tunnel | `T` drops you above its first shaft; it runs under the sea floor from one end of the world to the other (the torch switches on by itself) |
+| Easter eggs | The first tunnel shaft is a downdraft that pulls you in. Hang still by a quiet spot on the deep floor and a whale sings and passes overhead. After a while in the dark with the torch on, glow fish gather in its beam. Hang still near the floor for a minute and a shark comes to circle you. Hang still near the surface and jellyfish drift in to a ring around you. The geyser throws you 400 m up (about 9 s) over a made-up archipelago that goes on to the horizon, with the sound dying away as you climb; you fall back, drifting to a landing on the water ~28 m from the geyser. |
+| Easter egg shortcuts | `G` geyser · `T` tunnel entrance · `U` whale spot (hold still) · `I` glow fish · `O` downdraft · `P` shark · `J` jellyfish · `K` the 400 m throw |
 | Up / down | `E` / `Q` |
 | Swim faster | Hold `Shift`, or tap `↑` twice quickly and hold it on the second tap |
 | Jump to a viewpoint | `1` to `6` (the spots in the screenshots) |

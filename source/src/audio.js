@@ -6,6 +6,7 @@
 // all behind a heavy low-pass and nearly dry (no echo). The diver breathes: a soft inhale, then a burst of bubbles.
 // Above the surface they fade away and the air takes over: wind, swell, lapping ripples and the odd gull; crossing the
 // surface makes a splash. The sound can be switched on and off from the menu or with M (the choice is remembered).
+let whaleSong = () => {}; // the whale easter egg
 let torchClick = () => {}; // the torch switch's click, set up with the sound graph
 let AC, OUT, muted = (() => { try { return localStorage.abyssalMute === '1'; } catch { return false; } })();
 const VOL = 0.78; // master level: about -18.5 LUFS, peaks near -5.5 dBFS
@@ -47,6 +48,8 @@ function mkSound(ac) {
     f.setValueAtTime(f0, t); f.exponentialRampToValueAtTime(f1, t + dur);
     g.setValueAtTime(0, t); g.linearRampToValueAtTime(vol, t + att); g.setTargetAtTime(0, t + att, (dur - att) / 5);
   };
+  const whl = pool(3, 0.6, 'sine', uw);
+  whaleSong = () => { const t = ac.currentTime + 0.2; play(whl, t, 62, 130, 8, 0.34, 3); play(whl, t + 2.5, 150, 96, 9, 0.24, 3); play(whl, t + 7, 80, 170, 7, 0.28, 2.5); play(whl, t + 11, 170, 58, 10, 0.22, 3); };
   let lt = ac.currentTime, tB = lt + 1.5, tG = lt + 3, tBr = lt + 2, brP = 4.8, blub = 0, lx = F[CX], ly = F[CY], lz = F[CZ], was = F[CY] > 0;
   out.gain.setTargetAtTime(muted ? 0 : VOL, lt, 1);
   return () => {
@@ -56,6 +59,7 @@ function mkSound(ac) {
     lt = now; lx = F[CX]; ly = F[CY]; lz = F[CZ];
     // in the air the underwater world is a faint muffled bed and the sky's sounds come up
     const above = ly > 0.02;
+    out.gain.setTargetAtTime(muted ? 0 : VOL * (1 - 0.9 * sstep(10, 160, ly)), t, 0.4); // high in the sky it all goes quiet
     uw.gain.setTargetAtTime(above ? 0.07 : 1, t, 0.15); air.gain.setTargetAtTime(above ? 1 : 0, t, above ? 0.7 : 0.2);
     { // nearest vent and nearest blacktip: loudness by distance, side by where they are relative to the head
       const vt = Wd.vents; let bd = 1e9, bp = 0;
@@ -69,8 +73,9 @@ function mkSound(ac) {
     }
     windG.gain.setTargetAtTime(0.12 + 0.3 * pow(min(v / 26, 1), 1.2), t, 0.4);
     if (above !== was) { // through the surface: a splash and, going in, a few bubbles
-      was = above; splash.gain.cancelScheduledValues(t); splash.gain.setValueAtTime(0.13, t); splash.gain.setTargetAtTime(0, t + 0.03, 0.12);
-      if (!above) { let tt = t; for (let n = 4; n--;) { const f = rr(380, 1300); play(bub, tt, f, f * rr(1.4, 2.2), 0.05 + 40 / f, rr(0.04, 0.09), 0.006); tt += rr(0.05, 0.14); } }
+      was = above; const big = max(0, min(1, (v - 8) / 30)); // a fast plunge is a loud splash and a long fizz of bubbles
+      splash.gain.cancelScheduledValues(t); splash.gain.setValueAtTime(0.13 + 0.5 * big, t); splash.gain.setTargetAtTime(0, t + 0.03, 0.12 + 0.55 * big);
+      if (!above) { let tt = t; for (let n = 4 + 16 * big | 0; n--;) { const f = rr(380, 1300); play(bub, tt, f, f * rr(1.4, 2.2), 0.05 + 40 / f, rr(0.04, 0.09) * (1 + big), 0.006); tt += rr(0.05, 0.14 + 0.1 * big); } }
     }
     if (t > tG) {
       if (above) { // a gull: two to four cries, each a rise and a fall in pitch

@@ -317,7 +317,7 @@ fn fogRaw(c: vec3f, wp: vec3f, z: f32) -> vec3f {
   let hm = 1. - .96 * sat((g.tor.y + dkAt(wp)) * min(1., 14. / d));
   if (g.cam.y > 0.) {
     // camera above the water: clear air with a touch of haze; the water's haze only starts where the ray enters it
-    if (wp.y >= 0.) { return mix(vec3f(.85, 1.2, 1.7), c, exp(-d * .0012)); }
+    if (wp.y >= 0.) { let hk = ss(25., 120., g.cam.y); return mix(vec3f(.85, 1.2, 1.7) * (1. - .35 * hk), c, exp(-d * .0012 * (1. - .8 * hk))); } // (from high up the air is clearer, so the rock keeps its colour)
     let t0 = g.cam.y / (g.cam.y - wp.y); let e = g.cam.xyz + v * t0; let dw = d * (1. - t0);
     return c * exp(-sg(z) * dw) * ss(230., 185., dw) + fogIn(e, rd, dw, z, g.sun.xyz) * (.58 + .42 * vol(e + rd * min(dw, 150.)).g) * hm;
   }
@@ -470,9 +470,13 @@ fn tri(p: vec3f, n: vec3f, s: f32) -> TP {
   let E = sunE(i.wp.y, z) * shadow9(i.wp + n0 * .35) * (1. - .4 * gm.g) * cloudSh;
   let ndl = sat(dot(N, L));
   let am = (amb(i.wp, N, v1.g, z) + side(i.wp, N, sat((v2.r - .5) * 2.7), z)) * ao;
+  // rock out of the water is weathered brown, not bleached white by the sun
+  let ab = ss(.1, 2.5, i.wp.y) * select(0., 1., mat <= 1);
+  alb = mix(alb, mix(vec3f(.2, .13, .085), vec3f(.4, .29, .19), B.h) * (.75 + .5 * F.h), ab * .8);
   let ray = sedK * caus3(i.wp, dist); let cas = mix(ca, vec3f(.62), sedK);                                   // on sand the sun's pattern is soft and low in contrast
   let dl = E * ndl * (.10 + mix(vec3f(.33), mix(vec3f(.33), cas, 1. - .4 * sedK), ss(.1, .45, dot(n0, L))) * 2.5);
   var c = alb * (dl + am) + emi + alb * flu * dot(dl + am, vec3f(.1, .5, .5));
+  c *= 1. - .3 * ab;
   c += E * ndl * ray * vec3f(.92, 1., 1.02) * 4.4 * (.5 + alb);                                  // light strings: the sun focused by the ripples, drawn on top of the sand
   let H = normalize(V + L);
   c += E * (.25 + ca) * pow(sat(dot(N, H)), mix(10., 70., gloss)) * gloss * ndl * 1.8;
@@ -983,9 +987,43 @@ fn skyCol(rd: vec3f) -> vec3f {
   let cc = vec3f(1.65, 1.68, 1.75) * (.7 + .5 * pow(mu, 3.)) - vec3f(.0, .06, .18) * (1. - ss(.5, .74, fbm2(uv * 1.1 + .15)));
   c = mix(c, cc, cl * .88);
   c += SUNC * (pow(mu, 6.) * .16 + pow(mu, 90.) * .9 + ss(.99955, .99986, mu) * 30.) * (1. - cl * .85);
+  let nk = g.rot.z;
+  let sq = floor(rd * 420.); let hh = fract(sin(dot(sq, vec3f(12.9898, 78.233, 37.719))) * 43758.5453);
+  let st = ss(.9972, .9996, hh) * (.55 + .45 * sin(g.cam.w * 2. + hh * 90.)) * ss(.0, .25, rd.y);
+  c = mix(c, c * vec3f(.05, .06, .17) + vec3f(.012, .02, .06) + vec3f(1., .95, .85) * st * 2.2, nk);
+  return c;
+}
+// from far above: black sky, stars, and the Earth as a sphere (radius 6371 km) with ocean, land, clouds, a terminator and a thin atmosphere
+fn spaceCol(rd: vec3f) -> vec3f {
+  let h = g.cam.y * .001; let R = 6371.; let L = g.sun.xyz;
+  let sq = floor(rd * 520.); let hh = fract(sin(dot(sq, vec3f(12.9898, 78.233, 37.719))) * 43758.5453);
+  var c = vec3f(1., .95, .88) * ss(.9955, .9995, hh) * 1.8 + vec3f(.004, .006, .014);
+  let mu = max(dot(rd, L), 0.);
+  c += SUNC * (pow(mu, 400.) * 6. + pow(mu, 30.) * .03);
+  let ro = h + R; let b = ro * rd.y; let disc = b * b - (h * h + 2. * h * R);
+  let cl = ro * ro - b * b;
+  if (disc > 0. && b < 0.) {
+    let t = -b - sqrt(disc);
+    let n = normalize(vec3f(rd.x * t, h + rd.y * t + R, rd.z * t));
+    let q = n.xz * 2.6 + vec2f(n.y * 1.7, n.y * .6);
+    let lm = ss(.5, .6, fbm2(q * 1.5 + 3.));
+    var col = mix(vec3f(.02, .11, .3), vec3f(.05, .3, .55), pow(1. - max(dot(n, -rd), 0.), 2.) * .5);
+    col = mix(col, mix(vec3f(.1, .22, .08), vec3f(.5, .4, .24), fbm2(q * 5.)), lm);
+    let cd = ss(.5, .76, fbm2(q * 3.6 + vec2f(g.cam.w * .003, 0.)));
+    col = mix(col, vec3f(.95), cd * .85);
+    let nl = dot(n, L); let day = ss(-.12, .3, nl);
+    let sp = pow(max(dot(reflect(rd, n), L), 0.), 90.) * (1. - lm) * (1. - cd);
+    var e = col * (.012 + 1.5 * day) + vec3f(1., .95, .85) * sp * 2.5;
+    let fr = pow(1. - max(dot(n, -rd), 0.), 3.5);
+    e += vec3f(.28, .55, 1.2) * fr * 1.6 * (day * .9 + .08);
+    return e;
+  }
+  let ac = sqrt(max(cl, 0.)) - R;
+  if (b < 0. && ac < 400.) { c += vec3f(.22, .5, 1.1) * exp(-max(ac, 0.) / 38.) * (.14 + .8 * ss(-.2, .5, dot(normalize(vec3f(rd.x, 0., rd.z)), vec3f(L.x, 0., L.z) / max(length(L.xz), .01)))); }
   return c;
 }
 @fragment fn fs(i: VO) -> @location(0) vec4f {
+  if (g.cam.y > 3000.) { discard; }
   let up = g.cam.y > 0.; let t = g.cam.w;
   let v0 = i.wp - g.cam.xyz; let d = length(v0); let V = v0 / d;
   // where the ray really meets the waves (their height, flattened near the waterline so the camera never sits inside one)
@@ -1012,7 +1050,7 @@ fn skyCol(rd: vec3f) -> vec3f {
     let lit = .25 + .75 * sat(dot(n, g.sun.xyz));
     let sss = vec3f(.04, .38, .34) * pow(sat(dot(V, g.sun.xyz)), 2.) * sat(sw.w * 1.6 - .3) * .5;
     let col = (skyCol(R) + SUNC * glit) * fr * (1. - foam) + vec3f(1.05, 1.1, 1.15) * lit * foam * .9 + sss * (1. - fr);
-    return vec4f(col, fr * (1. - foam) + foam * .9);
+    return vec4f(col, fr * (1. - foam) + foam * .9) * (1. - ss(25., 120., g.cam.y)); // (from high up the far sea takes over)
   }
   let n = normalize(vec3f(-su.x, -1., -su.y));
   let ci = sat(dot(V, -n));
@@ -1031,19 +1069,49 @@ fn skyCol(rd: vec3f) -> vec3f {
 }
 // behind everything: where no terrain is drawn (it stops at ~240 m) the water looks as it does at that distance;
 // from the air, upward rays see the sky and downward ones the sea below the surface
+fn ah(p: vec2f) -> vec3f { return fract(sin(vec3f(dot(p, vec2f(127.1, 311.7)), dot(p, vec2f(269.5, 183.3)), dot(p, vec2f(419.2, 371.9)))) * 43758.5453); }
+// a made-up archipelago on the flat sea: atolls (green core, sand, white surf, turquoise shallows) on a 1.8 km grid, hazed with distance
+fn archipelago(q: vec2f, tt: f32, base: vec3f) -> vec3f {
+  let cs = 1800.; let ip = floor(q / cs); var res = base;
+  for (var j = -1; j <= 1; j++) { for (var i = -1; i <= 1; i++) {
+    let cell = ip + vec2f(f32(i), f32(j)); let h = ah(cell);
+    if (h.z < .5) { continue; }
+    let ctr = (cell + .25 + .5 * h.xy) * cs; let rad = 130. + 330. * fract(h.x * 7.13 + h.y * 3.1);
+    let nz = fbm2(q * .018 + h.xy * 40.) - .5;
+    let d = length(q - ctr) / rad * (1. + .22 * nz);
+    var c = mix(res, vec3f(.1, .58, .64), ss(1.35, .85, d) * .85);
+    c = mix(c, vec3f(.92, .97, 1.), ss(.12, 0., abs(d - .8)) * .85);
+    c = mix(c, vec3f(.86, .78, .58), ss(.66, .54, d));
+    c = mix(c, vec3f(.1, .3, .09) * (.8 + .6 * (fbm2(q * .05) - .3)), ss(.46, .32, d));
+    res = c;
+  } }
+  return mix(res, SKYH * .9, 1. - exp(-tt / 26000.));
+}
 @vertex fn vsB(@builtin(vertex_index) i: u32) -> VO {
   var o: VO;
   let p = vec2f(f32(i & 1u), f32(i >> 1u)) * 2. - 1.;
-  o.wp = g.cam.xyz + g.fwd.xyz + g.right.xyz * (p.x * g.right.w) + g.up.xyz * (p.y * g.up.w);
+  o.wp = g.fwd.xyz + g.right.xyz * (p.x * g.right.w) + g.up.xyz * (p.y * g.up.w); // (the ray itself, not a point: the camera is far too high for a position to keep its precision)
   o.cp = vec4f(p, 1e-7, 1.);
   return o;
 }
 @fragment fn fsB(i: VO) -> @location(0) vec4f {
-  let rd = normalize(i.wp - g.cam.xyz);
+  let rd = normalize(i.wp);
   if (g.cam.y > 0.) {
+    if (g.cam.y > 3000.) {
+      let ks = ss(3000., 60000., g.cam.y); var b0: vec3f;
+      if (rd.y > -.0045) { b0 = skyCol(rd); } else { let p = g.cam.xyz + rd * (g.cam.y / -rd.y + 200.); b0 = fog(vec3f(0.), p, zone(p)); }
+      return fin(mix(b0, spaceCol(rd), ks));
+    }
     if (rd.y > -.0045) { return fin(skyCol(rd)); }
     let p = g.cam.xyz + rd * (g.cam.y / -rd.y + 200.);
-    return fin(fog(vec3f(0.), p, zone(p)));
+    var col = fog(vec3f(0.), p, zone(p));
+    let hk = ss(25., 120., g.cam.y);
+    if (hk > 0.) { // from high up the open sea goes on: far-off atolls, haze and the sun's glitter
+      let tt = g.cam.y / -rd.y;
+      col = mix(col, archipelago(g.cam.xz + rd.xz * tt, tt, col), hk * ss(700., 1300., tt));
+      col += SUNC * .3 * pow(max(dot(reflect(rd, vec3f(0., 1., 0.)), g.sun.xyz), 0.), 160.) * hk * ss(300., 900., tt);
+    }
+    return fin(col);
   }
   let p = g.cam.xyz + rd * 240.;
   return fin(fog(vec3f(0.), p, zone(p)));
@@ -1129,9 +1197,11 @@ fn quad(i: u32) -> vec2f { return vec2f(f32(i & 1u), f32(i >> 1u)) * 2. - 1.; }
   let z = zone(i.wp);
   let v = i.wp - g.cam.xyz; let d = length(v);
   let al = ss(1., .1, rr) * i.pr.x * ss(.2, 1.3, d);
-  let wh = step(1.5, i.pr.z);
+  let wh = step(1.5, i.pr.z) * step(i.pr.z, 3.); let dk = step(3., i.pr.z) * step(i.pr.z, 4.); let gl = step(4., i.pr.z);
+  if (gl > .5) { let tw = .75 + .25 * sin(g.cam.w * 2.3 + i.pr.z * 90.); let gg = ss(1., 0., rr); return vec4f(vec3f(.25, .9, 1.) * gg * gg * 1.6 * tw * ss(.15, .6, d), 0.); }
   var c = (sunE(i.wp.y, z) * i.pr.y * .95 + amb(i.wp, vec3f(0., 1., 0.), 1., z) * 1.2) * mix(vec3f(.66, .57, .42), vec3f(.95, .98, 1.), wh) * (1. - .2 * ss(.8, 0., rr));
-  let T = exp(-SIG.g * d);
+  c = mix(c, vec3f(.01, .035, .06), dk);
+  var T = exp(-SIG.g * d); T = mix(T, 1., dk * .65);
   c = c * T + fogIn(g.cam.xyz, v / d, d, z, g.sun.xyz) * (1. - T) * .6;
   return vec4f(min(max(c * dkLit(i.wp), vec3f(0.)), vec3f(12.)) * al, al);
 }

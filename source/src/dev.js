@@ -13,6 +13,11 @@
   window.tallRocks = (min) => { const o = []; for (let r = 60; r < 175; r += 6) for (let a = 0; a < 6.28; a += 0.1) { const x = r * Math.cos(a), z = r * Math.sin(a), g = (() => { for (let y = 16.5; y > 0; y -= 0.5) if (sdAt(x, y, z) > 0) return groundAt(x, z, y - 2.5); return -99; })(); if (g > min && g < 17) o.push([x | 0, z | 0, +g.toFixed(1)]); } return o; };
   window.holdKeys = (f) => { kf = f; };
   window.sdq = sdAt;
+  window.setPit = (p) => { F[PIT] = p; };
+  window.whaleNow = () => whaleShow();
+  window.flyUp = () => { fly = 1; F[VY] = 0; };
+  window.egg = (k, v) => { ({ still: () => { stillT = v; }, torch: () => { torchHold = v; }, shark: () => { shSeen = 0; stillT = v; } })[k](); };
+  window.eggs = () => ({ whale: WHALE, tun: TUN, tend: TUN.end, fishK, jelBloom, shT, nightK, stillT, torchOn });
   window.gJetOn = () => { gJet = 1.4; crown(GX, GZ, 160, 14, 7); };
   window.rockTop = rockTop;
   window.vyq = () => F[VY].toFixed(1);

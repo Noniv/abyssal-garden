@@ -162,7 +162,9 @@ keep('abyssalLoad', 1);
 addEventListener('pagehide', () => keep('abyssalLoad', ''));
 // Easter egg: a geyser (a little volcano on the sea floor in shallow water, throwing up big bubbles and, past the surface, spray). It simmers;
 // swim over it and it throws you 100 m up, and gravity brings you back
-let GEY = false, GX = 0, GZ = 0, GY = 0, fly = 0, gCool = 0, gJet = 0, gAcc = 0, ibGey = null, nGey = 0;
+let GEY = false, GX = 0, GZ = 0, GY = 0, fly = 0, gCool = 0, gJet = 0, gAcc = 0, ibGey = null, nGey = 0, gJx = 0, gJz = 0, sbT0 = 0, ibSB = null;
+// more easter eggs: the message at the end of the long tunnel, the whale spot, the downdraft in the tunnel's first shaft
+let ibMsg = null, nMsg = 0, WHALE = null, ibVent = null, nVent = 0, trip = null;
 const TUN = [];
 let D;
 {
@@ -187,8 +189,8 @@ let D;
   for (let z = 0; z < NZ; z++) for (let x = 0; x < NX; x++) {
     const wx = OX + x * VS, wz = OZ + z * VS, w = sstep(136, 152, hypot(wx, wz));
     if (!w) continue;
-    const cap = -5 + 11 * fbm(wx * 0.035, 5, wz * 0.035, 4) + 2.2 * (fbm(wx * 0.17, 9, wz * 0.17, 3) - 0.5);
-    for (let y = 0; y < NY; y++) { const i = x + NX * (y + NY * z), c = cap - (OY + y * VS) + (1 - w) * 60; if (c < D[i]) D[i] = c; }
+    const cap = -5 + 11 * fbm(wx * 0.035, 5, wz * 0.035, 4) + 2.2 * (fbm(wx * 0.17, 9, wz * 0.17, 3) - 0.5), ro = 140 * sstep(176, 192, hypot(wx, wz)); // (the ring ends in a circle, not in the square edge of the world)
+    for (let y = 0; y < NY; y++) { const i = x + NX * (y + NY * z), c = cap - (OY + y * VS) + (1 - w) * 60 - ro; if (c < D[i]) D[i] = c; }
   }
   // the geyser: the flattest bit of shallow sea (about 3 m deep) gets a small volcano cone with a crater
   const colTop = (wx, wz) => { const ix = round((wx - OX) / VS), iz = round((wz - OZ) / VS); for (let y = NY - 2; y > 0; y--) { const i = ix + NX * (y + NY * iz); if (D[i] > 0) return OY + (y + D[i] / (D[i] - D[i + NX])) * VS; } return -99; };
@@ -214,6 +216,15 @@ let D;
         gb[o + 4] = Math.random(); gb[o + 5] = 2.1 - 0.9 * s; gb[o + 6] = -y0 + 0.9; gb[o + 7] = 0.06 + 0.06 * Math.random();
       }
       ibGey = buf(gb, BU.VERTEX); nGey = nb;
+    }
+  }
+  // the whale spot: a quiet, flat, deep bit of sea floor far from the geyser
+  {
+    let best = 1e9;
+    for (let r = 70; r < 128; r += 6) for (let a = 0; a < 6.28; a += 0.12) {
+      const x = r * cos(a), z = r * sin(a), g = colTop(x, z); if (g > -42 || g < -48) continue;
+      let sc = abs(g + 45) + (GEY ? max(0, 70 - hypot(x - GX, z - GZ)) * 0.1 : 0); for (const [ox, oz] of [[4, 0], [-4, 0], [0, 4], [0, -4]]) sc += abs(colTop(x + ox, z + oz) - g) * 0.6;
+      if (sc < best) { best = sc; WHALE = [x, g, z]; }
     }
   }
   // a very long tunnel under the sea floor, from one end of the world to the other (a winding bore, about 4.4 m wide, with a few shafts
@@ -242,6 +253,15 @@ let D;
       if (bt > -90 && bs < 1e8) { carve(bx, TY, bz, bx, bt + 3, bz, 3, 0.1); carve(TP[k][0], TY, TP[k][1], bx, TY, bz, TR, 0.09); TUN.push([bx, bt, bz]); }
     }
     TUN.start = TP[0];
+    // the far end opens into a round chamber
+    const E = TUNNELS.find((t) => t.id === 'E').pts, ep = E[E.length - 1];
+    carve(ep[0], ep[1], ep[2], ep[0] + 0.01, ep[1], ep[2], 5, 0.04);
+    TUN.end = ep;
+    if (TUN.length) { // the first shaft is a downdraft: a curtain of bubbles falling into it
+      const [vx0, vt, vz0] = TUN[0], nb = 150, gb = new Float32Array(nb * 8), top = vt + 13;
+      for (let k = 0; k < nb; k++) { const o = k * 8, an = Math.random() * 6.2832, rd = k < 90 ? 2.4 + Math.random() * 0.5 : Math.random() * 1.6; gb[o] = vx0 + cos(an) * rd; gb[o + 1] = top; gb[o + 2] = vz0 + sin(an) * rd; gb[o + 3] = 0.14 + 0.2 * Math.random(); gb[o + 4] = Math.random(); gb[o + 5] = -(2.6 + 2 * Math.random()); gb[o + 6] = -(top - TY); gb[o + 7] = 0.04; }
+      ibVent = buf(gb, BU.VERTEX); nVent = nb;
+    }
   }
   // rock connected to the seabed: each column's unbroken run up from the bottom is, and the rock above a gap
   // (overhangs, specks) is when it touches rock that is. What never connects is a speck of noise floating in
@@ -348,6 +368,11 @@ for (const p of POSES) flyPts.push([p[0], -40, p[2]]);
 
 await say('Growing kelp…', 0.73, 2500);
 const Wd = makeWorld(D, T, flyPts, POSES);
+// extra instances the easter eggs move about: a school of glow fish that gathers in the torch beam, and a shark that comes to visit
+const NGF = 28, FISH0 = Wd.fish.length / 8, SHK0 = Wd.sharks.length / 8;
+Wd.fish = Float32Array.from([...Wd.fish, ...Array.from({ length: NGF }, (_, k) => [0, -300, 0, 1.7, 0.31 + k * 0.0371 % 0.6, 1.2 + (k % 5) * 0.08, 0.1 + (k % 4) * 0.012, 3.37]).flat()]);
+Wd.sharks = Float32Array.from([...Wd.sharks, 0, -300, 0, 7, 0, 0.32, 2.2, 0.41]);
+const JELLY0 = Float32Array.from(Wd.jelly);
 for (const p of POSES) p[1] += Wd.gy(p[0], p[2]);
 D = Wd.gy = T.smp = null; // with gy goes the generator's working memory (about 200 MB)
 
@@ -605,7 +630,7 @@ function render() {
     const k = dtm > 1e-4 && dtm < 0.2 ? 1 / dtm : 0; let ry = -dy * k / (TANH * asp) * 0.013, rp = -dp * k / TANH * 0.013;
     ry = ry > 0.03 ? 0.03 : ry < -0.03 ? -0.03 : ry; rp = rp > 0.03 ? 0.03 : rp < -0.03 ? -0.03 : rp; if (menu) { ry = rp = 0; }
     m[64] = (vx * rx + vz * rz) * sh; m[65] = (vx * ux + vy * uy + vz * uz) * sh; m[66] = (vx * fx + vy * fy + vz * fz) * sh; m[67] = spd;
-    m[68] = ry; m[69] = rp; m[70] = 0; m[71] = 0; }
+    m[68] = ry; m[69] = rp; m[70] = nightK; m[71] = 0; }
   Q.writeBuffer(ubo, 0, UB);
   WT[0] = F[TIME]; Q.writeBuffer(uboW, 0, WT);
 
@@ -652,9 +677,12 @@ function render() {
   r.setPipeline(pSurf); r.draw(4);
   r.setPipeline(pBub); r.setVertexBuffer(0, ibBubbles); r.draw(4, nBub);
   if (nGey) { r.setPipeline(pBub); r.setVertexBuffer(0, ibGey); r.draw(4, nGey); }
+  if (nVent) { r.setPipeline(pBub); r.setVertexBuffer(0, ibVent); r.draw(4, nVent); }
+  if (sbT0) { r.setPipeline(pBub); r.setVertexBuffer(0, ibSB); r.draw(4, 170); }
   r.setPipeline(pGl); r.setVertexBuffer(0, ibGl); r.draw(4, nGl);
   r.setPipeline(pJelly); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32'); r.setVertexBuffer(1, ibJelly); r.drawIndexed(JELLY.ib.length, nJelly, JELLY.i0, JELLY.v0, 0);
   r.setPipeline(pPuf); r.setVertexBuffer(0, ibPuf); r.draw(4, NPUF);
+  if (nMsg) { r.setVertexBuffer(0, ibMsg); r.draw(4, nMsg); }
   r.setPipeline(pSnow); r.setVertexBuffer(0, ibSnowB); r.draw(4, nSnow);
   r.end();
   // light shafts
@@ -877,7 +905,7 @@ function collide() {
 // ---------------------------------------------------------------- sand stirred up near the bottom
 // Swimming close to the sand pushes the water about, and the sand with it: puffs are born on the ground around the swimmer
 // (more the faster and the lower), are dragged back by the wake, then spread, drift with the current and settle.
-const NPUF = 900, PS = new Float32Array(NPUF * 11), PU = new Float32Array(NPUF * 8), ibPuf = device.createBuffer({ size: NPUF * 32, usage: BU.VERTEX | BU.COPY_DST });
+const NPUF = 1700, PS = new Float32Array(NPUF * 11), PU = new Float32Array(NPUF * 8), ibPuf = device.createBuffer({ size: NPUF * 32, usage: BU.VERTEX | BU.COPY_DST });
 let puN = 0, puAcc = 0;
 const prn = Math.random;
 // white spray (a puff with seed > 1.5): ballistic, dies at the water
@@ -886,11 +914,95 @@ function spray(x, y, z, vx, vy, vz, life, s0, s1) {
   PS[o] = x; PS[o + 1] = y; PS[o + 2] = z; PS[o + 3] = vx; PS[o + 4] = vy; PS[o + 5] = vz; PS[o + 6] = 0; PS[o + 7] = life; PS[o + 8] = s0; PS[o + 9] = s1; PS[o + 10] = 2 + prn();
 }
 const crown = (x, z, n, up, out) => { for (let i = 0; i < n; i++) { const a = prn() * 6.2832, r = out * (0.3 + prn() * 0.7); spray(x + cos(a) * 0.4, 0.05, z + sin(a) * 0.4, cos(a) * r, up * (0.4 + prn() * 0.6), sin(a) * r, 3, 0.2, 0.5 + prn() * 0.3); } };
+// ---------------------------------------------------------------- easter eggs
+let torchGrace = 0, stillT = 0, torchHold = 0, whCool = 0, whStill = 0, shT = 0, shSeen = 0, jelBloom = false, nightK = 0, fishK = 0;
+const JB = [];
+function whaleShow() {
+    const a = prn() * 6.2832, hx = -cos(a), hz = -sin(a), sx = WHALE[0] + cos(a) * 55, sz = WHALE[2] + sin(a) * 55, y = WHALE[1] + 27;
+  for (const [s, sz2, lat] of [[-13, 3.4, 3.5], [-13, 3.4, -3.5], [-10, 2.6, 0], [-5, 5, 0], [1, 7, 0], [7, 6.5, 0], [12, 5, 0], [16, 3.4, 0]]) {
+    const o = puN++ % NPUF * 11, px = sx + hx * s - hz * lat, pz = sz + hz * s + hx * lat;
+    PS[o] = px; PS[o + 1] = y; PS[o + 2] = pz; PS[o + 3] = hx * 2.6; PS[o + 4] = 0; PS[o + 5] = hz * 2.6; PS[o + 6] = 0; PS[o + 7] = 46; PS[o + 8] = sz2 * 0.8; PS[o + 9] = sz2; PS[o + 10] = 3 + prn() * 0.9;
+  }
+}
+// The geyser's big throw: 400 m up (an S-curve, 9 s), then back down at a speed that the air limits (about 12 s), drifting to a
+// landing on the water ~28 m from the geyser
+const TRIP_H = 400;
+function startTrip() {
+  let lx = GX + 28, lz = GZ;
+  for (const [rr, deep] of [[28, -7.9], [34, -7.9], [28, -3]]) { let ok = false; for (let k = 0; k < 24 && !ok; k++) { const an = k * 0.2618, x = GX + cos(an) * rr, z = GZ + sin(an) * rr; if (hypot(x, z) < 138 && groundAt(x, z, -4) <= deep) { lx = x; lz = z; ok = true; } } if (ok) break; }
+  fly = 2; trip = { ph: 1, t: 0, alt: 0, lx, lz };
+  F[VX] *= 0.3; F[VZ] *= 0.3; gJet = 1.4; gJx = GX; gJz = GZ; crown(GX, GZ, 160, 14, 7);
+}
+// one step of the trip: the camera's new position
+function tripStep(dt) {
+  const T = 9, tr = trip;
+  if (tr.ph === 1) { tr.t += dt; const s = min(tr.t / T, 1); tr.alt = TRIP_H * s * s * (3 - 2 * s); if (s >= 1) { tr.ph = 2; tr.alt = TRIP_H; } return [GX, tr.alt, GZ]; }
+  const a = 2 * TRIP_H / (T * T), v = min(sqrt(2 * a * (TRIP_H - tr.alt) + 1), 28 + 0.09 * tr.alt);
+  tr.alt -= v * dt; const p = 1 - sqrt(max(tr.alt, 0) / TRIP_H);
+  return [GX + (tr.lx - GX) * p, max(tr.alt, 0), GZ + (tr.lz - GZ) * p];
+}
+// the plunge: a swarm of bubbles from the entry point rising from down to ten metres (vsBub loops them, so they are switched off after one rise)
+function splashBubbles(x, z) {
+  const n = 170, a = new Float32Array(n * 8), t = F[TIME];
+  for (let k = 0; k < n; k++) {
+    const o = k * 8, an = prn() * 6.2832, rd = 2.2 * sqrt(prn()), y = -(0.3 + 9.5 * prn() * prn()), sp = 1.4 + 1.8 * prn(), rg = -y + 1.2;
+    a[o] = x + cos(an) * rd; a[o + 1] = y; a[o + 2] = z + sin(an) * rd; a[o + 3] = 0.1 + 0.4 * prn() * prn();
+    a[o + 4] = ((-t * sp / rg) % 1 + 1) % 1; a[o + 5] = sp; a[o + 6] = rg; a[o + 7] = 0.05 + 0.08 * prn();
+  }
+  if (!ibSB) ibSB = buf(a, BU.VERTEX); else Q.writeBuffer(ibSB, 0, a);
+  sbT0 = t;
+}
+function eggStep(dt) {
+  if (sbT0 && F[TIME] - sbT0 > 11) { sbT0 = 0; Q.writeBuffer(ibSB, 0, new Float32Array(170 * 8)); }
+  if (menu) return;
+  const cx = F[CX], cy = F[CY], cz = F[CZ], spd = sqrt(F[VX] * F[VX] + F[VY] * F[VY] + F[VZ] * F[VZ]), tt = F[TIME];
+  stillT = spd < 1 && cy < -0.8 && !fly ? stillT + dt : 0;
+  // the night sky above 60 m: dusk and stars on the way up from the geyser
+  nightK = 0.92 * sstep(90, 340, cy); // the sky goes to dusk and stars as you climb
+  // the downdraft in the tunnel's first shaft
+  if (TUN.length && !fly) {
+    const [vx, vt, vz] = TUN[0], dh = hypot(cx - vx, cz - vz);
+    if (dh < 3.6 && cy > LTY + 1 && cy < vt + 14) { const k = sstep(3.6, 1.5, dh); F[VY] -= 26 * k * dt; if (F[VY] < -9) F[VY] = -9; F[VX] += (vx - cx) * 1.5 * dt; F[VZ] += (vz - cz) * 1.5 * dt; }
+  }
+  // whale song: stay by the quiet spot on the deep floor for a few seconds
+  whCool -= dt;
+  if (WHALE && whCool <= 0 && hypot(cx - WHALE[0], cz - WHALE[2]) < 6 && cy < WHALE[1] + 10) whStill += dt; else whStill = 0;
+  if (whStill > 3) {
+    whStill = 0; whCool = 120; whaleSong(); whaleShow();
+  }
+  // glow fish gather in the torch beam after a while in the dark
+  torchGrace -= dt; torchHold = torchOn && spd < 4 ? torchHold + dt : torchGrace > 0 ? torchHold : 0;
+  fishK += ((torchHold > 8 ? 1 : 0) - fishK) * (1 - exp(-dt * 1.2));
+  { const o = FISH0 * 8, tx = cx + sin(F[YAW]) * cos(F[PIT]) * 3.2, ty = cy - sin(F[PIT]) * 3.2 * -1, tz = cz - cos(F[YAW]) * cos(F[PIT]) * 3.2;
+    for (let k = 0; k < NGF; k++) { const j = o + k * 8; Wd.fish[j] += ((fishK > 0.05 ? tx : cx) - Wd.fish[j]) * (1 - exp(-dt * (fishK > 0.05 ? 1.6 : 0))); Wd.fish[j + 1] = fishK > 0.05 ? Wd.fish[j + 1] + (ty - Wd.fish[j + 1]) * (1 - exp(-dt * 1.6)) : -300; Wd.fish[j + 2] += (tz - Wd.fish[j + 2]) * (1 - exp(-dt * (fishK > 0.05 ? 1.6 : 0))); }
+    if (fishK > 0.05 && Wd.fish[o + 1] < -299) for (let k = 0; k < NGF; k++) { const j = o + k * 8; Wd.fish[j] = cx + (prn() - 0.5) * 30; Wd.fish[j + 1] = cy + (prn() - 0.5) * 6; Wd.fish[j + 2] = cz + (prn() - 0.5) * 30; }
+    Q.writeBuffer(ibFish, o * 4, Wd.fish, o, NGF * 8); }
+  // a shark comes by if you hang still near the floor for a minute
+  { const h = cy < -20 ? -CS[0] : 99; if (shT === 0) { shSeen = stillT > 60 && h < 9 ? shSeen + 1 : 0; if (shSeen > 0) { shT = 0.001; Wd.sharks[SHK0 * 8] = cx; Wd.sharks[SHK0 * 8 + 1] = cy; Wd.sharks[SHK0 * 8 + 2] = cz; Wd.sharks[SHK0 * 8 + 3] = 9; } }
+    else { shT += dt; const o = SHK0 * 8, a = Wd.sharks;
+      if (shT < 34) { // circles at least 3 m over the highest ground within its orbit
+        const R = 9 - 3.5 * sstep(0, 6, shT); let hg = -99; for (let q = 0; q < 8; q++) { const g = groundAt(a[o] + cos(q * 0.7854) * R, a[o + 2] + sin(q * 0.7854) * R, a[o + 1]); if (g > hg) hg = g; }
+        const ty = max(F[CY] - 0.5, hg + 3.4);
+        a[o] += (F[CX] - a[o]) * (1 - exp(-dt * 0.5)); a[o + 1] += (ty - a[o + 1]) * (1 - exp(-dt * 0.8)); a[o + 2] += (F[CZ] - a[o + 2]) * (1 - exp(-dt * 0.5)); a[o + 3] = R; }
+      else if (shT < 70) a[o + 3] += 3 * dt; else { a[o + 1] = -300; shT = 0; }
+      Q.writeBuffer(ibShark, o * 4, a, o, 8); } }
+  // jellyfish drift in to a slow ring round you when you hang still near the surface
+  jelBloom = stillT > 20 && cy > -14 && cy < -0.8 ? true : spd > 1.6 ? false : jelBloom;
+  { const nj = 12, st = Wd.jelly; if (JB.length === 0) for (let k = 0; k < nj; k++) JB.push(0);
+    for (let k = 0; k < nj; k++) {
+      const o = k * 8, kk = st[o + 4], ang = k / nj * 6.2832 + tt * 0.07, rr = 4.2 + (k % 3) * 1.1;
+      const off = [sin(tt * 0.05 + kk * 20) * 5 + sin(tt * 0.13 + kk * 7) * 1.5, sin(tt * 0.5 + kk * 9) * 1.4, cos(tt * 0.045 + kk * 13) * 5 + cos(tt * 0.11 + kk * 5)];
+      const gx = jelBloom ? cx + cos(ang) * rr - off[0] : JELLY0[o], gy = jelBloom ? cy + 0.6 * sin(k * 2.3) - off[1] : JELLY0[o + 1], gz = jelBloom ? cz + sin(ang) * rr - off[2] : JELLY0[o + 2];
+      const dx = gx - st[o], dy = gy - st[o + 1], dz = gz - st[o + 2], dl = hypot(dx, dy, dz) || 1, sp = min(dl, (jelBloom ? 5 : 3) * dt);
+      st[o] += dx / dl * sp; st[o + 1] += dy / dl * sp; st[o + 2] += dz / dl * sp;
+    }
+    Q.writeBuffer(ibJelly, 0, st, 0, nj * 8); }
+}
 function puffStep(dt) {
   if (GEY && !menu) {
     gAcc += 28 * dt; while (gAcc >= 1) { gAcc -= 1; const a = prn() * 6.2832, r = 0.6 * prn(), tall = prn() < 0.6; // the bubbles pop into a little spray
       spray(GX + cos(a) * r, 0.05, GZ + sin(a) * r, cos(a) * (tall ? 0.7 : 1.6), tall ? 4 + prn() * 4 : 1.5 + prn() * 2, sin(a) * (tall ? 0.7 : 1.6), 4, tall ? 0.25 : 0.6, tall ? 0.8 : 1.1); }
-    if (gJet > 0) { gJet -= dt; for (let i = 0, n = 380 * dt; i < n; i++) { const a = prn() * 6.2832, r = 1.1 * prn(); spray(GX + cos(a) * 0.3, 0.05, GZ + sin(a) * 0.3, cos(a) * r, 18 + prn() * 28, sin(a) * r, 9, 0.25, 0.7); } }
+    if (gJet > 0) { gJet -= dt; for (let i = 0, n = 380 * dt; i < n; i++) { const a = prn() * 6.2832, r = 1.1 * prn(); spray(gJx + cos(a) * 0.3, 0.05, gJz + sin(a) * 0.3, cos(a) * r, 18 + prn() * 28, sin(a) * r, 9, 0.25, 0.7); } }
   }
   const sp = sqrt(F[VX] * F[VX] + F[VY] * F[VY] + F[VZ] * F[VZ]);
   let act = (sp - 0.9) / 3; act = act < 0 ? 0 : act > 1 ? 1 : act;
@@ -922,14 +1034,15 @@ function puffStep(dt) {
     const o = i * 11, u = i * 8, life = PS[o + 7];
     if (PS[o + 6] >= life) { PU[u + 3] = 0; continue; }
     const age = PS[o + 6] += dt;
-    if (PS[o + 10] > 1.5) { PS[o + 4] -= 9.81 * dt; PS[o] += PS[o + 3] * dt; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt; if (PS[o + 1] < 0 && PS[o + 4] < 0) { PS[o + 6] = life; PU[u + 3] = 0; continue; } }
+    if (PS[o + 10] >= 3 && PS[o + 10] < 4) { PS[o] += PS[o + 3] * dt; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt; } // (drifting silhouette)
+    else if (PS[o + 10] > 1.5) { PS[o + 4] -= 9.81 * dt; PS[o] += PS[o + 3] * dt; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt; if (PS[o + 1] < 0 && PS[o + 4] < 0) { PS[o + 6] = life; PU[u + 3] = 0; continue; } }
     else {
     PS[o + 3] = PS[o + 3] * dr + (0.14 - PS[o + 3] * dr) * cf; PS[o + 4] = PS[o + 4] * dr + (-0.03 - PS[o + 4] * dr) * cf; PS[o + 5] = PS[o + 5] * dr + (0.1 - PS[o + 5] * dr) * cf;
     PS[o] += PS[o + 3] * dt + sin(tc * 0.7 + i) * 0.003; PS[o + 1] += PS[o + 4] * dt; PS[o + 2] += PS[o + 5] * dt + cos(tc * 0.6 + i * 1.7) * 0.003; }
     const f = age / life, s0 = PS[o + 8], s1 = PS[o + 9];
     PU[u] = PS[o]; PU[u + 1] = PS[o + 1]; PU[u + 2] = PS[o + 2]; PU[u + 3] = s0 + (s1 - s0) * (1 - exp(-age * 0.8));
     let fi = age / 0.35; fi = fi > 1 ? 1 : fi; const fo = 1 - f;
-    PU[u + 4] = 0.62 * fi * fo * fo; PU[u + 5] = PS[o + 10];
+    PU[u + 4] = (PS[o + 10] >= 3 && PS[o + 10] < 4 ? 0.9 * min(1, age / 4) * min(1, (life - age) / 4) : 0.62 * fi * fo * fo); PU[u + 5] = PS[o + 10];
   }
   Q.writeBuffer(ibPuf, 0, PU);
 }
@@ -980,9 +1093,9 @@ function frame(now) {
     swimT = mf !== 0 || mr !== 0 || mu !== 0 ? swimT + dt : 0; let sr = swimT / 1.6; sr = sr > 1 ? 1 : sr; sr = sr * (2 - sr); const spe = sp * 0.675 * sr;
     const vx = F[VX] + ((sy * cp * mf + cw * mr) * spe + cvx - F[VX]) * k, vy = F[VY] + ((sin(pitch) * mf + mu) * spe + cvy - F[VY]) * k, vz = F[VZ] + ((-cw * cp * mf + sy * mr) * spe + cvz - F[VZ]) * k;
     // out of the water, on top of rock: you walk (eye 1.7 m over the ground, slower, no flying); off a ledge you fall
-    if (GEY && !fly) { gCool -= dt; if (gCool <= 0 && F[CY] > GY + 0.3 && F[CY] < 1.4 && hypot(F[CX] - GX, F[CZ] - GZ) < 1.8) { fly = 1; F[VY] = 45.2; F[VX] *= 0.3; F[VZ] *= 0.3; gJet = 1.4; crown(GX, GZ, 160, 14, 7); } }
+    if (GEY && !fly) { gCool -= dt; if (gCool <= 0 && F[CY] > GY + 0.3 && F[CY] < 1.4 && hypot(F[CX] - GX, F[CZ] - GZ) < 1.8) startTrip(); }
     const gh = F[CY] > 0 && F[CY] < 14 ? groundAt(F[CX], F[CZ], F[CY] - 2.2) : -99, walk = F[CY] > 0 && gh > 0.15 && F[CY] - gh < 2.6;
-    if (fly && (F[CY] < 0.2 || walk) && F[VY] < 0) { fly = 0; gCool = 4; if (F[CY] < 0.5) crown(F[CX], F[CZ], 200, 12, 8); }
+    if (fly === 1 && (F[CY] < 0.2 || walk) && F[VY] < 0) { fly = 0; gCool = 4; if (F[CY] < 0.5) crown(F[CX], F[CZ], 200, 12, 8); }
     let wvx = vx, wvy = vy, wvz = vz;
     if (walk) {
       const sw = ks || ka ? 6.5 : 3.6, kw = 1 - exp(-dt * 8), fx = sy * mf + cw * mr, fz = -cw * mf + sy * mr, fl = hypot(fx, fz) || 1, m = fl > 1 ? 1 / fl : 1;
@@ -995,14 +1108,16 @@ function frame(now) {
       const top = rockTop(F[CX] + sy * 1.2, F[CZ] - cw * 1.2, F[CY] + 3);
       if (top > 0.3 && top + 2 > F[CY]) { climb = true; wvy = (top + 1.9 - F[CY]) * 5; wvy = wvy > 4.5 ? 4.5 : wvy < -2 ? -2 : wvy; }
     }
-    if (fly) { const kf2 = 1 - exp(-dt * 0.9), fx = sy * mf + cw * mr, fz = -cw * mf + sy * mr; wvx = F[VX] + (fx * 5 - F[VX]) * kf2; wvz = F[VZ] + (fz * 5 - F[VZ]) * kf2; wvy = F[VY] - 9.81 * dt; }
+    if (fly === 2) { const p = tripStep(dt); wvx = (p[0] - F[CX]) / dt; wvy = (p[1] - F[CY]) / dt; wvz = (p[2] - F[CZ]) / dt; if (trip.ph === 2 && p[1] <= 0.4) { fly = 0; gCool = 4; crown(p[0], p[2], 700, 24, 15); gJet = 0.7; gJx = p[0]; gJz = p[2]; splashBubbles(p[0], p[2]); trip = null; wvy = -45; wvx = 0; wvz = 0; } }
+    else if (fly) { const kf2 = 1 - exp(-dt * 0.9), fx = sy * mf + cw * mr, fz = -cw * mf + sy * mr; wvx = F[VX] + (fx * 5 - F[VX]) * kf2; wvz = F[VZ] + (fz * 5 - F[VZ]) * kf2; wvy = F[VY] - 9.81 * dt; }
     const gr = !walk && !fly && !climb && F[CY] > 0.3 ? 14 * dt : 0; // above the water you slowly sink back
     let x = F[CX] + wvx * dt, y = F[CY] + (wvy - gr) * dt, z = F[CZ] + wvz * dt;
     const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
-    const ymax = fly ? 140 : walk || climb ? 18 : 3.4; y = y < -52 ? -52 : y > ymax ? ymax : y;
+    const ymax = fly ? 4.5e5 : walk || climb ? 18 : 3.4; y = y < -52 ? -52 : y > ymax ? ymax : y;
     F[YAW] = yaw; F[PIT] = pitch; F[VX] = wvx; F[VY] = wvy - gr; F[VZ] = wvz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
     if (F[CY] < 14) collide(); else { F[CX] += F[MX]; F[CY] += F[MY]; F[CZ] += F[MZ]; } // (above the rock there is nothing to hit)
   }
+  eggStep(dt);
   puffStep(dt);
   render();
   if ((mapT += dtr) > 50) { mapT = 0; if (!menu && !mm.style.visibility) drawMap(); }
@@ -1035,6 +1150,12 @@ const key = (e, v) => {
       else if (e.code === 'Digit7') nurseTour();
       else if (e.code === 'Digit8') pupTour();
       else if (e.code === 'KeyT' && TUN.length) { const t = TUN[0]; for (let k = 0; k < 24; k++) { const an = k * 0.2618, cx = t[0] + cos(an) * 8, cz = t[2] + sin(an) * 8, cy = t[1] + 3.5; if (sdAt(cx, cy, cz) < -0.9) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; lookAt(cx, cy, cz, t[0], t[1] - 1, t[2]); break; } } } // the tunnel's first shaft: in front of its mouth
+      else if (e.code === 'KeyU' && WHALE) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; whCool = 0; lookAt(WHALE[0], WHALE[1] + 2.5, WHALE[2], WHALE[0] + 5, WHALE[1] + 14, WHALE[2]); } // the whale spot: hold still there
+      else if (e.code === 'KeyI') { fly = 0; F[VX] = F[VY] = F[VZ] = 0; torchGrace = 3; torchHold = 8.2; lookAt(-139, -50.4, 20.4, -120, -50.4, 28.6); } // glow fish: the tunnel's start, torch gathering time already counted
+      else if (e.code === 'KeyO' && TUN.length) { const t = TUN[0]; fly = 0; F[VX] = F[VY] = F[VZ] = 0; lookAt(t[0], t[1] + 7, t[2] + 0.01, t[0], t[1] - 6, t[2]); } // the downdraft, from above its shaft
+      else if (e.code === 'KeyP' && WHALE) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; stillT = 61; shT = 0; lookAt(WHALE[0] + 8, WHALE[1] + 2.5, WHALE[2], WHALE[0], WHALE[1] + 2, WHALE[2]); } // the visiting shark: held still near the floor for a minute already
+      else if (e.code === 'KeyJ' && GEY) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; stillT = 21; lookAt(GX + 9, -3.5, GZ, GX + 20, -2, GZ); } // jellyfish ring: held still near the surface for 20 s already
+      else if (e.code === 'KeyK' && GEY) { F[CX] = GX; F[CY] = 0.5; F[CZ] = GZ; F[VX] = F[VY] = F[VZ] = 0; F[PIT] = -0.9; startTrip(); } // the 400 km throw, from the geyser
       else if (e.code === 'KeyG' && GEY) { for (let k = 0; k < 24; k++) { const an = k * 0.2618, cx = GX + cos(an) * 7, cz = GZ + sin(an) * 7; if (sdAt(cx, GY + 2.7, cz) < -0.9 && groundAt(cx, cz, GY) < GY + 1) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; lookAt(cx, GY + 2.7, cz, GX, GY + 3.2, GZ); break; } } } // the geyser easter egg: stand in front of it
     }
   }
