@@ -910,6 +910,47 @@ fn spots3(p: vec3f, sc: f32, dens: f32, rmin: f32, rmax: f32) -> f32 {
   c += alb * amb(i.wp, vec3f(0., 1., 0.), vv.g, z) * ca * .25 * top * gr;
   return fin(fog(c, i.wp, z));
 }
+// seagulls: an instance is x, y, z, yaw | flying (0 perched .. 1 in the air), size, seed. In the air the wings beat (now and then they
+// glide, held out and slightly raised) and the legs tuck in; perched the wings fold back along the body
+@vertex fn vsGull(i: VI) -> VO {
+  var o: VO;
+  let t = g.cam.w; let fly = i.b.x; let sz = i.b.y; let sd = i.b.z;
+  var l = i.p; let u = i.n.w; let au = abs(u);
+  let wing = step(.02, au); let pf = 1. - fly; let leg = step(i.p.y, -.2);
+  let beat = mix(.14, 1., ss(-.25, .45, sin(t * .45 + sd * 30.)));
+  let ph = t * 8.5 + sd * 40.;
+  l.y += wing * fly * (beat * (.5 * au * au * sin(ph) + .05 * sin(ph - 1.)) + .16 * sin(au * 2.6) - .13 * au * au * au * (1. - beat * .5));
+  l.z -= wing * fly * beat * .04 * au * (1. + sin(ph));
+  l.x = mix(l.x, sign(l.x) * (.16 + (abs(l.x) - .1) * .06), wing * pf);
+  l.z -= wing * pf * au * .52; l.y += wing * pf * (.075 - .11 * au);
+  l.y = mix(l.y, -.12 + (l.y + .12) * .18, leg * fly);
+  l.z -= leg * fly * .12;
+  let cy = cos(i.a.w); let sy = sin(i.a.w);
+  let rl = vec3f(l.x * cy + l.z * sy, l.y, -l.x * sy + l.z * cy) * sz;
+  let w = i.a.xyz + rl;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = vec3f(i.n.x * cy + i.n.z * sy, i.n.y, -i.n.x * sy + i.n.z * cy); o.op = i.p; o.sd = sd;
+  o.lt = 1.;
+  return o;
+}
+@fragment fn fsGull(i: VO) -> @location(0) vec4f {
+  let V = normalize(g.cam.xyz - i.wp); var nn = normalize(i.n); if (dot(nn, V) < 0.) { nn = -nn; }
+  let L = g.sun.xyz; let z = zone(i.wp); let vv = vol(i.wp);
+  let p = i.op; let ax = abs(p.x);
+  let tx = textureSample(tD, sR, p.xz * 2.3 + i.sd);
+  let top = ss(-.15, .35, nn.y);
+  var alb = vec3f(.93, .94, .94);
+  let mant = max(ss(.12, .2, ax), ss(.4, .3, p.z) * ss(.0, .06, p.y)) * top;
+  alb = mix(alb, vec3f(.55, .59, .64) * (.88 + .24 * tx.r), mant * .92);
+  alb = mix(alb, vec3f(.03, .03, .035), ss(.78, .9, ax) * ss(.1, -.1, p.z + tx.g * .15 - .05) * .96);
+  alb = mix(alb, vec3f(.95, .72, .1), ss(.76, .79, p.z) * (1. - .45 * ss(.86, .9, p.z)));
+  alb = mix(alb, vec3f(.9, .62, .5), step(p.y, -.2));
+  alb *= 1. - .95 * ss(.026, .013, length(vec3f(ax - .072, p.y - .088, p.z - .64)));
+  let E = sunE(i.wp.y, z) * shadow4(i.wp + nn * .3);
+  let thin = step(.13, ax);
+  var c = alb * (E * (sat(dot(nn, L)) + thin * .4 * sat(-dot(nn, L))) + mix(amb(i.wp, vec3f(nn.x, abs(nn.y) * .55 + .25, nn.z), vv.g, z) * 1.1 + side(i.wp, nn, 1., z) * .5, vec3f(.62, .68, .78) * (.34 + .66 * (nn.y * .5 + .5)), ss(-.5, .6, i.wp.y)));
+  c += E * pow(sat(dot(nn, normalize(V + L))), 30.) * .12;
+  return fin(fog(c, i.wp, z));
+}
 @vertex fn vsManta(i: VI) -> VO {
   var o: VO;
   let t = g.cam.w; let R = i.a.w; let sz = i.b.z;

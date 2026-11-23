@@ -816,6 +816,27 @@ function meshManta() {
   }
   return m;
 }
+// seagull: length ~1.4 along z (beak +z), wing span 2.2 (x); aux = signed span position on the wings (0 on the body), the legs are the
+// vertices below y = -0.2. Small, so it is built from a few tubes and two flat wings
+function meshGull() {
+  const m = new Mesh(), z0 = () => 0;
+  const bz = [-0.55, -0.4, -0.2, 0, 0.2, 0.35, 0.5, 0.62], br = [0.03, 0.075, 0.14, 0.18, 0.17, 0.125, 0.095, 0.085], by = [0.02, 0.01, 0, 0, 0.01, 0.03, 0.06, 0.07];
+  m.tube(bz.map((z, k) => [0, by[k], z]), (k) => br[k], 10, true, z0);
+  m.tube([[0, 0.07, 0.6], [0, 0.075, 0.7], [0, 0.065, 0.76]], (k) => [0.085, 0.07, 0.04][k], 8, true, z0);          // head
+  m.tube([[0, 0.06, 0.74], [0, 0.055, 0.82], [0, 0.04, 0.9]], (k) => [0.036, 0.026, 0.006][k], 6, true, z0);       // beak
+  const t0 = m.v(0, 0.025, -0.34, 0), t1 = m.v(-0.11, 0.0, -0.72, 0), t2 = m.v(0.11, 0, -0.72, 0), t3 = m.v(0, -0.005, -0.76, 0);
+  m.tri(t0, t1, t3); m.tri(t0, t3, t2); m.tri(t0, t3, t1); m.tri(t0, t2, t3);                                       // the tail fan
+  for (const sx of [-1, 1]) m.tube([[sx * 0.06, -0.1, 0.0], [sx * 0.06, -0.27, 0.03], [sx * 0.06, -0.43, 0.07]], 0.014, 5, true, z0);  // legs
+  for (const sg of [-1, 1]) {
+    const NS = 12, rows = [];
+    for (let i = 0; i <= NS; i++) {
+      const s = i / NS, x = sg * (0.1 + 1.0 * s), au = sg * (0.04 + 0.96 * s), lead = 0.3 - 0.24 * s * s - 0.05 * s, trail = -0.17 - 0.03 * s + 0.12 * s * s * s, y = 0.035 + 0.02 * sin(s * 3.1);
+      rows.push([0, 1, 2].map((j) => m.v(x, y - 0.012 * j, lead + (trail - lead) * j / 2, au)));
+    }
+    for (let i = 0; i < NS; i++) for (let j = 0; j < 2; j++) { const a = rows[i][j], b = rows[i][j + 1], c = rows[i + 1][j + 1], d = rows[i + 1][j]; m.quad(a, b, c, d); m.quad(a, d, c, b); }
+  }
+  return m;
+}
 // shark (great white): length 2 along z (nose +z, tail -z), local y up. A dense, smooth body with a carved open mouth,
 // gill slits and teeth, plus thin aerofoil-section fins. aux (normal.w) = how deep inside a mouth / gill slit a
 // vertex is (0..1), -1 on teeth; the shader darkens and whitens by it

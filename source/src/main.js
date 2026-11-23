@@ -123,6 +123,7 @@ const pSnow = scenePipe(mSpr, 'vsSnow', 'fsSnow', [ibSnow], { strip: true, blend
 const PREM = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } };
 const pPuf = scenePipe(mSpr, 'vsPuff', 'fsPuff', [ibBub], { strip: true, blend: PREM });
 const pJelly = scenePipe(mAnim, 'vsJelly', 'fsJelly', [vbSolid, ibAnim], { blend: PREM });
+const pGull = scenePipe(mAnim, 'vsGull', 'fsGull', [vbSolid, ibAnim]);
 const pGl = scenePipe(mLeaf, 'vsGl', 'fsGl', [ibBub], { strip: true, blend: ADD, constants: { ROWS: 7 } });
 const pSolidSh = shadowPipe(mSolid, 'vs', [vbSolid, ibSolid]), pTerrSh = shadowPipe(mSolid, 'vs', [vbSolid, ibSolid], { cull: 'front' });
 const pLeafSh = shadowPipe(mLeaf, 'vs', [ibLeaf], { strip: true, constants: { ROWS: 3 } });
@@ -164,6 +165,7 @@ addEventListener('pagehide', () => keep('abyssalLoad', ''));
 // swim over it and it throws you 100 m up, and gravity brings you back
 let GEY = false, GX = 0, GZ = 0, GY = 0, fly = 0, gCool = 0, gJet = 0, gAcc = 0, ibGey = null, nGey = 0, gJx = 0, gJz = 0, sbT0 = 0, ibSB = null;
 // more easter eggs: the message at the end of the long tunnel, the whale spot, the downdraft in the tunnel's first shaft
+const GP = []; // seagull perches (x, top, z, yaw), found on the rocks that stand out of the water
 let ibMsg = null, nMsg = 0, WHALE = null, ibVent = null, nVent = 0, trip = null;
 const TUN = [];
 let D;
@@ -194,6 +196,19 @@ let D;
   }
   // the geyser: the flattest bit of shallow sea (about 3 m deep) gets a small volcano cone with a crater
   const colTop = (wx, wz) => { const ix = round((wx - OX) / VS), iz = round((wz - OZ) / VS); for (let y = NY - 2; y > 0; y--) { const i = ix + NX * (y + NY * iz); if (D[i] > 0) return OY + (y + D[i] / (D[i] - D[i + NX])) * VS; } return -99; };
+  // gull perches: the flat tops of rocks standing out of the water, two gulls on each of up to seven of the highest, well apart
+  {
+    const cand = [];
+    for (let r = 0; r < 186; r += 3) for (let a = 0; a < 6.28; a += r > 0 ? 3 / r : 7) {
+      const x = r * cos(a), z = r * sin(a), h = colTop(x, z);
+      if (h < 1.2 || h > 15) continue;
+      let ok = true; for (const [ox, oz] of [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]]) if (abs(colTop(x + ox, z + oz) - h) > 0.6) { ok = false; break; }
+      if (ok) cand.push([x, h, z]);
+    }
+    cand.sort((p, q) => q[1] - p[1] + (Math.random() - 0.5) * 3);
+    const sp = []; for (const c of cand) { if (sp.length >= 7) break; if (sp.every((q) => hypot(q[0] - c[0], q[2] - c[2]) > 16)) sp.push(c); }
+    for (const q of sp) for (let k = 0; k < 2; k++) { const an = Math.random() * 6.28, x = q[0] + cos(an) * 0.9 * k, z = q[2] + sin(an) * 0.9 * k, h = colTop(x, z); GP.push([x, h > 0.5 ? h : q[1], z, Math.random() * 6.28]); }
+  }
   {
     let best = 1e9;
     for (let r = 12; r < 140; r += 4) for (let a = 0; a < 6.28; a += 0.1) {
@@ -392,7 +407,7 @@ const meshes = [meshChunk(1, 3), meshChunk(7, 3), meshChunk(13, 3), meshChunk(22
   meshCoral(0), meshCoral(1), meshTubes()].map((m) => m.build());
 meshes.push(meshFluke(), meshShip().build(), meshManta().build(), meshFish().build(),
   meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build(), meshNurse().build(),
-  meshUrchin().build(), meshStarfish().build(), meshShell().build(), meshCucumber().build(), meshEel().build(), meshTable().build(), meshBrain().build(), meshAnemone().build(), meshJelly().build());
+  meshUrchin().build(), meshStarfish().build(), meshShell().build(), meshCucumber().build(), meshEel().build(), meshTable().build(), meshBrain().build(), meshAnemone().build(), meshJelly().build(), meshGull().build());
 let nV = 0, nI = 0;
 for (const m of meshes) { m.v0 = nV; m.i0 = nI; nV += m.nv; nI += m.ib.length; }
 const allV = new Uint8Array(nV * 16), allI = new Uint32Array(nI);
@@ -407,7 +422,8 @@ const ibBig = buf(new Uint8Array(Wd.big.buf), BU.VERTEX), ibBigF = buf(new Uint8
 const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibShark = buf(Wd.sharks, BU.VERTEX), ibNurse = buf(Wd.nurse, BU.VERTEX), ibPup = device.createBuffer({ size: max(32, Wd.pups.byteLength), usage: BU.VERTEX | BU.COPY_DST }), ibPupB = device.createBuffer({ size: max(16, Wd.pups.byteLength / 2), usage: BU.VERTEX | BU.COPY_DST }), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX), ibJelly = buf(Wd.jelly, BU.VERTEX);
 const ibGl = buf(Wd.glints, BU.VERTEX), nGl = Wd.glints.length / 8;
 const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nNurse = Wd.nurse.length / 16, nPup = Wd.pups.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4, nJelly = Wd.jelly.length / 8;
-const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27], JELLY = meshes[36];
+const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27], JELLY = meshes[36], GULL = meshes[37];
+const NGU = 14, GU = new Float32Array(NGU * 8), ibGull = device.createBuffer({ size: NGU * 32, usage: BU.VERTEX | BU.COPY_DST });
 const ibFloorL = Wd.floorL.map((a) => (a.length ? buf(a, BU.VERTEX) : null));
 // the map circle: the arena picture from the world generator, with viewpoints 1-6, the player and where they look
 const mmBg = document.createElement('canvas'); mmBg.width = mmBg.height = 128; mmBg.getContext('2d').putImageData(new ImageData(Wd.mapImg, 128, 128), 0, 0);
@@ -655,6 +671,7 @@ function render() {
   }
   r.setPipeline(pManta); r.setVertexBuffer(1, ibManta); r.drawIndexed(MANTA.ib.length, nManta, MANTA.i0, MANTA.v0, 0);
   r.setPipeline(pShark); r.setVertexBuffer(1, ibShark); r.drawIndexed(SHARK.ib.length, nShark, SHARK.i0, SHARK.v0, 0);
+  r.setPipeline(pGull); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32'); r.setVertexBuffer(1, ibGull); r.drawIndexed(GULL.ib.length, NGU, GULL.i0, GULL.v0, 0);
   // life on the sea floor and reef forms: same shader and layout as the sponges, drawn once per kind
   r.setPipeline(pSolid); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32');
   for (let k = 0; k < 8; k++) if (ibFloorL[k]) { const me = meshes[28 + k]; r.setVertexBuffer(1, ibFloorL[k]); r.drawIndexed(me.ib.length, Wd.floorL[k].length / 12, me.i0, me.v0, 0); }
@@ -945,6 +962,49 @@ function splashBubbles(x, z) {
   if (!ibSB) ibSB = buf(a, BU.VERTEX); else Q.writeBuffer(ibSB, 0, a);
   sbT0 = t;
 }
+// seagulls: they rest on the rocks that stand out of the water; come within a few metres and they take off, circle high over the atoll,
+// and settle again once you have gone. mode 0 perched, 1 taking off, 2 circling, 3 coming in to land
+let gullScare = 10, gullTour = 0, gHold = 0; // (gHold: the V key keeps you from sinking back for a while, so you can look at the gulls)
+const gulls = Array.from({ length: NGU }, (_, k) => ({ mode: GP.length && k < min(10, GP.length) ? 0 : 2, k, pi: GP.length && k < min(10, GP.length) ? k : -1, perch: GP.length && k < min(10, GP.length) ? GP[k] : null, pos: [0, 0, 0], yaw: 0, t0: 0, stay: 6 + Math.random() * 14, R: 40 + Math.random() * 70, alt: 12 + Math.random() * 14, dir: Math.random() < 0.5 ? -1 : 1, a0: Math.random() * 6.28, sz: 1.35 + Math.random() * 0.2, sd: Math.random(), fx: 0, fz: 0, st: [0, 0, 0], fly: 0 }));
+const gOrbit = (g, t) => { const a = g.a0 + g.dir * 9 / g.R * t; return [g.R * cos(a), g.alt + 2.2 * sin(t * 0.3 + g.sd * 20), g.R * sin(a)]; };
+const smooth01 = (x) => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
+function gullStep(dt) {
+  const t = F[TIME], cx = F[CX], cy = F[CY], cz = F[CZ];
+  for (const g of gulls) {
+    const pv = g.pos.slice(), P = g.perch;
+    if (g.mode === 9) { const o = g.k * 8; GU[o] = g.pos[0]; GU[o + 1] = g.pos[1]; GU[o + 2] = g.pos[2]; GU[o + 3] = g.yaw; GU[o + 4] = g.fly; GU[o + 5] = g.sz; GU[o + 6] = g.sd; continue; } // (a gull held still by the dev hook)
+    const dp = P ? hypot(cx - P[0], cy - P[1], cz - P[2]) : 1e9;
+    if (g.mode === 0) { g.pos = [P[0], P[1] + 0.43 * g.sz, P[2]]; g.fly = 0; g.yaw = P[3]; if (g.pos[1] > 0 && dp < gullScare) g.mode = 4; }
+    if (g.mode === 4) { // startled: away from you and up; the perch is free for anyone else
+      const dx = P[0] - cx, dz = P[2] - cz, dl = hypot(dx, dz) || 1; g.fx = dx / dl; g.fz = dz / dl; g.st = g.pos.slice(); g.t0 = t; g.mode = 1;
+      g.a0 = atan2(g.st[2], g.st[0]) - g.dir * 9 / g.R * t; g.stay = 6 + Math.random() * 14; g.pi = -1; g.perch = null;
+    }
+    if (g.mode === 1) {
+      const e = t - g.t0, s = smooth01(e / 5), o = gOrbit(g, t), h = smooth01(e / 4);
+      const fp = [g.st[0] + g.fx * 7 * e, g.st[1] + (g.alt - g.st[1]) * h, g.st[2] + g.fz * 7 * e];
+      g.pos = [fp[0] + (o[0] - fp[0]) * s, fp[1] + (o[1] - fp[1]) * s, fp[2] + (o[2] - fp[2]) * s]; g.fly = smooth01(e / 0.4);
+      if (e > 5) { g.mode = 2; g.t0 = t; }
+    } else if (g.mode === 2) {
+      g.pos = gOrbit(g, t); g.fly = 1;
+      if (GP.length && t - g.t0 > g.stay) { // settle on the nearest free perch that is not close to you
+        let bi = -1, bd = 1e9;
+        GP.forEach((q, i) => { if (hypot(cx - q[0], cy - q[1], cz - q[2]) < gullScare * 1.8 || gulls.some((o) => o !== g && o.pi === i)) return; const d = hypot(q[0] - g.pos[0], q[2] - g.pos[2]); if (d < bd) { bd = d; bi = i; } });
+        if (bi >= 0) { g.pi = bi; g.perch = GP[bi]; g.mode = 3; g.t0 = t; } else g.t0 = t - g.stay + 3;
+      }
+    } else if (g.mode === 3) {
+      const e = t - g.t0, s = smooth01(e / 9), o = gOrbit(g, t), tp = [P[0], P[1] + 0.43 * g.sz, P[2]];
+      g.pos = [o[0] + (tp[0] - o[0]) * s, o[1] + (tp[1] - o[1]) * Math.pow(s, 0.6), o[2] + (tp[2] - o[2]) * s]; g.fly = 1 - smooth01((s - 0.9) / 0.1);
+      if (dp < gullScare * 0.8) { g.mode = 4; }
+      else if (e > 9) { g.mode = 0; }
+    }
+    if (g.mode !== 0 && g.mode !== 4) {
+      const vx = g.pos[0] - pv[0], vz = g.pos[2] - pv[2];
+      if (hypot(vx, vz) > 1e-4 * max(dt, 0.001) * 60 && dt > 0) { let d = atan2(vx, vz) - g.yaw; d -= 6.2832 * Math.round(d / 6.2832); g.yaw += d * min(1, dt * 5); }
+    }
+    const o = g.k * 8; GU[o] = g.pos[0]; GU[o + 1] = g.pos[1]; GU[o + 2] = g.pos[2]; GU[o + 3] = g.yaw; GU[o + 4] = g.fly; GU[o + 5] = g.sz; GU[o + 6] = g.sd; GU[o + 7] = 0;
+  }
+  Q.writeBuffer(ibGull, 0, GU);
+}
 function eggStep(dt) {
   if (sbT0 && F[TIME] - sbT0 > 11) { sbT0 = 0; Q.writeBuffer(ibSB, 0, new Float32Array(170 * 8)); }
   if (menu) return;
@@ -1103,14 +1163,14 @@ function frame(now) {
     }
     if (fly === 2) { const p = tripStep(dt); wvx = (p[0] - F[CX]) / dt; wvy = (p[1] - F[CY]) / dt; wvz = (p[2] - F[CZ]) / dt; if (trip.ph === 2 && p[1] <= 0.4) { fly = 0; gCool = 4; crown(p[0], p[2], 700, 24, 15); gJet = 0.7; gJx = p[0]; gJz = p[2]; splashBubbles(p[0], p[2]); trip = null; wvy = -45; wvx = 0; wvz = 0; } }
     else if (fly) { const kf2 = 1 - exp(-dt * 0.9), fx = sy * mf + cw * mr, fz = -cw * mf + sy * mr; wvx = F[VX] + (fx * 5 - F[VX]) * kf2; wvz = F[VZ] + (fz * 5 - F[VZ]) * kf2; wvy = F[VY] - 9.81 * dt; }
-    const gr = !walk && !fly && !climb && F[CY] > 0.3 ? 14 * dt : 0; // above the water you slowly sink back
+    const gr = !walk && !fly && !climb && F[CY] > 0.3 && F[TIME] > gHold ? 14 * dt : 0; // above the water you slowly sink back
     let x = F[CX] + wvx * dt, y = F[CY] + (wvy - gr) * dt, z = F[CZ] + wvz * dt;
     const rad = sqrt(x * x + z * z); if (rad > 150) { x *= 150 / rad; z *= 150 / rad; }
     const ymax = fly ? 4.5e5 : walk || climb ? 18 : 3.4; y = y < -52 ? -52 : y > ymax ? ymax : y;
     F[YAW] = yaw; F[PIT] = pitch; F[VX] = wvx; F[VY] = wvy - gr; F[VZ] = wvz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
     if (F[CY] < 14) collide(); else { F[CX] += F[MX]; F[CY] += F[MY]; F[CZ] += F[MZ]; } // (above the rock there is nothing to hit)
   }
-  eggStep(dt);
+  eggStep(dt); gullStep(dt);
   puffStep(dt);
   render();
   if ((mapT += dtr) > 50) { mapT = 0; if (!menu && !mm.style.visibility) drawMap(); }
@@ -1147,6 +1207,16 @@ const key = (e, v) => {
       else if (e.code === 'KeyI') { fly = 0; F[VX] = F[VY] = F[VZ] = 0; torchGrace = 3; torchHold = 8.2; lookAt(-139, -50.4, 20.4, -120, -50.4, 28.6); } // glow fish: the tunnel's start, torch gathering time already counted
       else if (e.code === 'KeyO' && TUN.length) { const t = TUN[0]; fly = 0; F[VX] = F[VY] = F[VZ] = 0; lookAt(t[0], t[1] + 7, t[2] + 0.01, t[0], t[1] - 6, t[2]); } // the downdraft, from above its shaft
       else if (e.code === 'KeyP' && WHALE) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; stillT = 61; shT = 0; lookAt(WHALE[0] + 8, WHALE[1] + 2.5, WHALE[2], WHALE[0], WHALE[1] + 2, WHALE[2]); } // the visiting shark: held still near the floor for a minute already
+      else if (e.code === 'KeyV' && GP.length) { // seagulls: on the water 18 m from a perched pair, looking at it (they fly off if you go closer)
+        fly = 0; F[VX] = F[VY] = F[VZ] = 0;
+        let done = false;
+        for (let tries = 0; tries < GP.length && !done; tries++) { const P = GP[(gullTour++ * 2) % GP.length];
+        for (const R of [15, 18, 22, 27, 33, 40]) for (let k = 0; k < 24 && !done; k++) {
+          const an = k * 0.2618, px = P[0] + cos(an) * R, pz = P[2] + sin(an) * R; let ok = sdAt(px, 2.8, pz) < -0.9 && sdAt(px, 10, pz) < -0.9;
+          for (let q = 1; q < 7 && ok; q++) { const f = q / 8; if (sdAt(px + (P[0] - px) * f, 3 + (P[1] + 0.3 - 3) * f, pz + (P[2] - pz) * f) > -0.5) ok = false; }
+          if (ok) { F[CX] = px; F[CY] = 2.8; F[CZ] = pz; lookAt(px, 3, pz, P[0], P[1] + 0.3, P[2]); done = true; gHold = F[TIME] + 12; }
+        } }
+      }
       else if (e.code === 'KeyJ' && GEY) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; stillT = 21; lookAt(GX + 9, -3.5, GZ, GX + 20, -2, GZ); } // jellyfish ring: held still near the surface for 20 s already
       else if (e.code === 'KeyK' && GEY) { F[CX] = GX; F[CY] = 0.5; F[CZ] = GZ; F[VX] = F[VY] = F[VZ] = 0; F[PIT] = -0.9; startTrip(); } // the 400 km throw, from the geyser
       else if (e.code === 'KeyG' && GEY) { for (let k = 0; k < 24; k++) { const an = k * 0.2618, cx = GX + cos(an) * 7, cz = GZ + sin(an) * 7; if (sdAt(cx, GY + 2.7, cz) < -0.9 && groundAt(cx, cz, GY) < GY + 1) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; lookAt(cx, GY + 2.7, cz, GX, GY + 3.2, GZ); break; } } } // the geyser easter egg: stand in front of it
