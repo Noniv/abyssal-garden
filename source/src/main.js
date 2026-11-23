@@ -412,7 +412,7 @@ const ibFloorL = Wd.floorL.map((a) => (a.length ? buf(a, BU.VERTEX) : null));
 // the map circle: the arena picture from the world generator, with viewpoints 1-6, the player and where they look
 const mmBg = document.createElement('canvas'); mmBg.width = mmBg.height = 128; mmBg.getContext('2d').putImageData(new ImageData(Wd.mapImg, 128, 128), 0, 0);
 const mm = $('mm'), mx = mm.getContext('2d'); let mapT = 1e9;
-// where the sleeping nurse shark groups lie (instances that are within 9 m of each other are one group), for the map pins
+// where the sleeping nurse shark groups lie (instances that are within 9 m of each other are one group), for the key-7 tour
 const nurseGroups = [];
 for (let i = 0; i < Wd.nurse.length; i += 16) {
   const x = Wd.nurse[i], z = Wd.nurse[i + 2], g = nurseGroups.find((q) => hypot(q[0] / q[2] - x, q[1] / q[2] - z) < 9);
@@ -453,19 +453,6 @@ function drawMap() {
   for (const t of TUNNELS) if (!t.nomap) for (const e of [t.pts[0], t.pts[t.pts.length - 1]]) {
     const x = (e[0] + 160) * u, z = (e[2] + 160) * u; mx.fillStyle = '#ff9d3c'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
     mx.beginPath(); mx.arc(x, z, S * 0.036, 0, 6.2832); mx.fill(); mx.stroke(); mx.fillStyle = '#03222d'; mx.fillText(t.id, x, z + 0.5);
-  }
-  // sleeping nurse sharks: a red pin on each group
-  for (const g of nurseGroups) {
-    const x = (g[0] / g[2] + 160) * u, z = (g[1] / g[2] + 160) * u, r = S * 0.034;
-    mx.fillStyle = '#ff4f6d'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
-    mx.beginPath(); mx.moveTo(x - r * 0.82, z - r * 1.15); mx.lineTo(x, z); mx.lineTo(x + r * 0.82, z - r * 1.15); mx.closePath(); mx.fill(); mx.stroke();
-    mx.beginPath(); mx.arc(x, z - r * 1.75, r, 0, 6.2832); mx.fill(); mx.stroke();
-    mx.fillStyle = '#fff'; mx.beginPath(); mx.arc(x, z - r * 1.75, r * 0.38, 0, 6.2832); mx.fill();
-  }
-  // blacktip reef sharks: a yellow dot on each (they move, so these move too)
-  for (let o = 0; o < PUP.length; o += 8) {
-    mx.fillStyle = '#ffd91a'; mx.strokeStyle = '#03222d'; mx.lineWidth = S * 0.012;
-    mx.beginPath(); mx.arc((PUP[o] + 160) * u, (PUP[o + 2] + 160) * u, S * 0.03, 0, 6.2832); mx.fill(); mx.stroke();
   }
   mx.translate(px, pz); mx.rotate(a);
   mx.fillStyle = '#ffffff30'; mx.beginPath(); mx.moveTo(0, 0); mx.arc(0, 0, S * 0.17, -1.57 - 0.6, -1.57 + 0.6); mx.closePath(); mx.fill(); // what you look at
