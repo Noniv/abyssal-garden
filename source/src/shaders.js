@@ -319,7 +319,7 @@ fn fogRaw(c: vec3f, wp: vec3f, z: f32) -> vec3f {
     // camera above the water: clear air with a touch of haze; the water's haze only starts where the ray enters it
     if (wp.y >= 0.) { let hk = ss(25., 120., g.cam.y); return mix(vec3f(.85, 1.2, 1.7) * (1. - .35 * hk), c, exp(-d * .0012 * (1. - .8 * hk))); } // (from high up the air is clearer, so the rock keeps its colour)
     let t0 = g.cam.y / (g.cam.y - wp.y); let e = g.cam.xyz + v * t0; let dw = d * (1. - t0);
-    return c * exp(-sg(z) * dw) * ss(230., 185., dw) + fogIn(e, rd, dw, z, g.sun.xyz) * (.58 + .42 * vol(e + rd * min(dw, 150.)).g) * hm;
+    return c * exp(-sg(z) * dw) * ss(230., 185., dw) + fogIn(e, rd, dw, z, g.sun.xyz) * (.58 + .42 * mix(1., vol(e + rd * min(dw, 150.)).g, 1. - ss(170., 192., max(abs(e.x + rd.x * min(dw, 150.)), abs(e.z + rd.z * min(dw, 150.)))))) * hm; // (past the volume's edge its texels must not be stretched over the open sea)
   }
   return c * exp(-sg(z) * d) * ss(230., 185., d) + fogIn(g.cam.xyz, rd, d, z, g.sun.xyz) * (.58 + .42 * vol(g.cam.xyz + rd * min(d, 150.)).g) * hm;
 }
@@ -767,8 +767,8 @@ fn sharkShade(i: VO, pup: bool) -> vec4f {
     alb = mix(alb, vec3f(.86, .86, .82), ss(.2, .0, abs(nn.y - .05)) * ss(-.9, -.2, p.z) * ss(.9, .5, p.z) * .35); // the pale flank stripe
   }
   // eyes, the inside of the mouth and gill slits (shaped in the mesh; i.lt says how deep), teeth
-  alb *= 1. - .93 * ss(.026, .014, length(vec3f(ax - .126, p.y - .03, p.z - .8)));
-  alb = mix(alb, vec3f(.055, .04, .042), sat(i.lt) * .85);
+  alb *= 1. - .85 * ss(.017, .009, length(vec3f(ax - .126, p.y - .03, p.z - .8)));
+  alb = mix(alb, vec3f(.012, .008, .01), sat(i.lt * 1.6) * .97);
   if (i.lt < -.5) { alb = vec3f(.74, .71, .64); }
   let E = sunE(i.wp.y, z) * shadow4(i.wp + n * .3);
   var c = alb * (E * sat(dot(n, L)) * (.3 + ca) + amb(i.wp, vec3f(n.x, abs(n.y) * .55 + .25, n.z), vv.g, z) * 1.1 + side(i.wp, n, 1., z) * .8);
@@ -1104,11 +1104,19 @@ fn archipelago(q: vec2f, tt: f32, base: vec3f) -> vec3f {
     }
     if (rd.y > -.0045) { return fin(skyCol(rd)); }
     let p = g.cam.xyz + rd * (g.cam.y / -rd.y + 200.);
-    var col = fog(vec3f(0.), p, zone(p));
+    var col = fog(vec3f(0.), p, select(g.sun.w * .8, zone(p), max(abs(p.x), abs(p.z)) < 180.)); // (open sea: not the world map's edge texels stretched outwards)
     let hk = ss(25., 120., g.cam.y);
     if (hk > 0.) { // from high up the open sea goes on: far-off atolls, haze and the sun's glitter
       let tt = g.cam.y / -rd.y;
       col = mix(col, archipelago(g.cam.xz + rd.xz * tt, tt, col), hk * ss(700., 1300., tt));
+      // our own atoll: an uneven ring of sand, bright shallows and surf around the outside of its rock wall, like the far-off ones
+      let q0 = g.cam.xz + rd.xz * tt; let an = atan2(q0.y, q0.x);
+      let ed = 7. + 3.2 * sin(3. * an + 1.) + 2.2 * sin(5. * an + 2.) + 1.4 * sin(9. * an) + 0.9 * sin(17. * an + 4.);
+      let r0 = length(q0) + 1.6 * ed + 26. * (fbm2(q0 * .017 + 7.) - .5) + 9. * (fbm2(q0 * .09) - .5);
+      var cc = mix(col, vec3f(.1, .58, .64), ss(272., 196., r0) * .85 * hk);
+      cc = mix(cc, vec3f(.92, .97, 1.), ss(5., 0., abs(r0 - 226.)) * .8 * hk);
+      cc = mix(cc, vec3f(.86, .78, .58), ss(226., 212., r0) * hk);
+      col = cc;
       col += SUNC * .3 * pow(max(dot(reflect(rd, vec3f(0., 1., 0.)), g.sun.xyz), 0.), 160.) * hk * ss(300., 900., tt);
     }
     return fin(col);

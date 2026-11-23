@@ -88,8 +88,9 @@ function tunnelDark(x, y, z, only) {
     const a = t.pts[i], b = t.pts[i + 1], bx = b[0] - a[0], by = b[1] - a[1], bz = b[2] - a[2], l2 = bx * bx + by * by + bz * bz;
     const h = clamp(((x - a[0]) * bx + (y - a[1]) * by + (z - a[2]) * bz) / l2, 0, 1);
     const dist = hypot(x - a[0] - bx * h, y - a[1] - by * h, z - a[2] - bz * h);
-    if (dist > t.r * 1.5 + 0.5) continue;
-    const s = t.cum[i] + h * Math.sqrt(l2), k = sstep(t.r * 1.5 + 0.5, t.r * 0.95, dist) * (t.closed ? 1 : sstep(1, 11, min(s, t.len - s)));
+    const far = t.closed ? t.r * 2.8 + 0.5 : t.r * 1.5 + 0.5; // (the long tunnel's real bore wanders a few metres off its waypoints)
+    if (dist > far) continue;
+    const s = t.cum[i] + h * Math.sqrt(l2), k = sstep(far, t.closed ? t.r * 1.7 : t.r * 0.95, dist) * (t.closed ? 1 : sstep(1, 11, min(s, t.len - s)));
     if (k > best) best = k;
   }
   return best;
@@ -828,15 +829,15 @@ function meshShark() {
     const t = clamp((ST[i][0] - z) / (ST[i][0] - ST[i + 1][0]), 0, 1), g = (k) => ST[clamp(k, 0, ST.length - 1)];
     return [1, 2].map((c) => max(0, cr(g(i - 1)[c], g(i)[c], g(i + 1)[c], g(i + 2)[c], t)) * 1.08);
   };
-  const mz = (x) => 0.72 - 3.3 * x * x; // the mouth line on the underside of the snout
+  const mz = (x) => 0.74 - 4.6 * x * x; // the mouth line on the underside of the snout
   // carve the mouth (a groove at the lip line, the lower jaw dropped a little), and five gill slits, into a body point
   const carve = (x, y, z) => {
     let oy = 0, rd = 0, ax = 0; const w = abs(x);
     if (z > 0.4 && w < 0.17) {
       const dz = z - mz(x), k = sstep(0.15, 0.115, w) * sstep(0.04, -0.03, y);
-      oy -= 0.011 * sstep(0.003, -0.012, dz) * (1 - sstep(-0.05, -0.17, dz)) * k;
-      rd += 0.009 * exp(-pow(dz / 0.007, 2)) * k;
-      ax = max(ax, exp(-pow((dz + 0.002) / 0.008, 2)) * k * 0.55);
+      oy -= 0.005 * sstep(0.003, -0.012, dz) * (1 - sstep(-0.05, -0.17, dz)) * k;
+      rd += 0.006 * exp(-pow(dz / 0.007, 2)) * k;
+      ax = max(ax, exp(-pow((dz + 0.002) / 0.009, 2)) * k * 1.0);
     }
     if (w > 0.07 && z > 0.2 && z < 0.54) for (let g = 0; g < 5; g++) {
       const dz = z - (0.5 - 0.042 * g - 0.15 * y), k = sstep(0.07, 0.1, w) * sstep(0.15, 0.1, y) * sstep(-0.13, -0.09, y);
@@ -846,7 +847,7 @@ function meshShark() {
     return [x - x / l * rd, y + oy - y / l * rd, z, ax];
   };
   const zs = []; for (let z = 0.995; z > 0.15; z -= 0.007) zs.push(z); for (let z = 0.15; z > -0.985; z -= 0.016) zs.push(z); zs.push(-0.99);
-  const surf = (a, z) => { const [h, wd] = at(z), sy = sin(a), cx = cos(a); return carve(wd * cx * (1 - 0.14 * sy), (sy > 0 ? h * sy : h * 0.88 * sy) - 0.02 * sstep(0.5, 1, z), z); };
+  const surf = (a, z) => { const [h, wd] = at(z), sy = sin(a), cx = cos(a); return carve(wd * cx * (1 - 0.14 * sy), (sy > 0 ? h * sy : -h * 0.8 * pow(-sy, 0.45)) - 0.02 * sstep(0.5, 1, z), z); };
   const NS = zs.length, rings = [];
   for (let j = 0; j < NS; j++) { const r = []; for (let k = 0; k < M; k++) { const p = surf(k / M * TAU, zs[j]); r.push(m.v(p[0], p[1], p[2], p[3])); } rings.push(r); }
   const nose = m.v(0, -0.004, 1.0, 0);
@@ -854,23 +855,23 @@ function meshShark() {
   for (let j = 0; j < NS - 1; j++) for (let k = 0; k < M; k++) { const k2 = (k + 1) % M; m.quad(rings[j][k], rings[j + 1][k], rings[j + 1][k2], rings[j][k2]); }
   const last = rings[NS - 1], c0 = m.v(0, 0, -0.99, 0); for (let k = 0; k < M; k++) m.tri(last[(k + 1) % M], last[k], c0);
   // teeth: small serrated-looking cones along both lips
-  const NT = 45;
+  const NT = 31;
   for (let i = 0; i < NT; i++) {
-    const u = i / (NT - 1) * 2 - 1, x = u * 0.112, len = 0.013 - 0.006 * u * u, hw = 0.0042;
+    const u = i / (NT - 1) * 2 - 1, x = u * 0.112, len = 0.0065 - 0.003 * u * u, hw = 0.0036;
     for (const up of [1, 0]) {
       const z = mz(x) + (up ? 0.0015 : -0.006), [h, wd] = at(z), cx = clamp(x / (wd * 1.14), -1, 1), sy = -sqrt(1 - cx * cx);
-      const b = carve(x, h * 0.88 * sy - 0.02 * sstep(0.5, 1, z), z), dx = 8 * x * hw * 0.5, tl = hypot(1, dx) ;
+      const b = carve(x, -h * 0.8 * pow(-sy, 0.45) - 0.02 * sstep(0.5, 1, z), z), dx = 8 * x * hw * 0.5, tl = hypot(1, dx) ;
       const A = m.v(b[0] - hw / tl, b[1], b[2] + dx * hw / tl, -1), B = m.v(b[0] + hw / tl, b[1], b[2] - dx * hw / tl, -1);
       const C = m.v(b[0], b[1], b[2] + 0.5 * hw * 1.2, -1), D = m.v(b[0] + x * 0.1, b[1] + (up ? -len : len * 0.85), b[2] + (up ? 0.003 : 0.006), -1);
       if (up) { m.tri(A, B, D); m.tri(B, C, D); m.tri(C, A, D); } else { m.tri(B, A, D); m.tri(C, B, D); m.tri(A, C, D); }
     }
   }
   // aerofoil-section fin: leading edge F(s) and trailing edge R(s) from root (s=0) to tip (s=1), thick along nrm
-  const wing = (F, R, nrm, th, NSp = 16, NC = 10) => {
+  const wing = (F, R, nrm, th, NSp = 16, NC = 10, fa = 1) => {
     const up = [];
     for (let i = 0; i <= NSp; i++) {
       const s = i / NSp, f = F(s), r = R(s), row = [];
-      for (let j = 0; j <= NC; j++) { const c = j / NC, cc = c * c * (3 - 2 * c) * 0.35 + c * 0.65, t = th * (sqrt(cc) * (1 - cc) / 0.385) * (1 - s * 0.88); row.push([mix(f[0], r[0], cc), mix(f[1], r[1], cc), mix(f[2], r[2], cc), t]); }
+      for (let j = 0; j <= NC; j++) { const c = j / NC, cc = c * c * (3 - 2 * c) * 0.35 + c * 0.65, t = th * (sqrt(cc) * (1 - cc) / 0.385) * (1 - s * 0.88) * (1 + 2.4 * exp(-s * 9)), fl = exp(-s * 8) * fa; row.push([mix(f[0], r[0], cc), mix(f[1], r[1], cc), mix(f[2] + 0.07 * fl, r[2] - 0.11 * fl, cc), t]); }
       up.push(row);
     }
     const id = [[], []];
@@ -888,13 +889,13 @@ function meshShark() {
   };
   const X = [1, 0, 0], Y = [0, 1, 0];
   wing((s) => [0, 0.17 + 0.46 * s, 0.30 - 0.50 * pow(s, 1.1)], (s) => [0, 0.16 + 0.45 * s, -0.12 - 0.08 * pow(s, 2.5)], X, 0.022, 20, 12);        // first dorsal
-  wing((s) => [0, 0.1 + 0.12 * s, -0.55 - 0.15 * s], (s) => [0, 0.095 + 0.11 * s, -0.7 - 0.05 * s], X, 0.008, 8, 8);                           // second dorsal
-  wing((s) => [0, -0.1 - 0.12 * s, -0.54 - 0.14 * s], (s) => [0, -0.095 - 0.11 * s, -0.69 - 0.04 * s], X, 0.008, 8, 8);                        // anal
+  wing((s) => [0, 0.06 + 0.14 * s, -0.55 - 0.15 * s], (s) => [0, 0.055 + 0.13 * s, -0.7 - 0.05 * s], X, 0.008, 8, 8, 2);                           // second dorsal
+  wing((s) => [0, -0.06 - 0.14 * s, -0.54 - 0.14 * s], (s) => [0, -0.055 - 0.13 * s, -0.69 - 0.04 * s], X, 0.008, 8, 8, 2);                        // anal
   wing((s) => [0, 0.045 + 0.42 * s, -0.93 - 0.42 * pow(s, 1.1)], (s) => [0, 0.04 + 0.41 * s, -1.2 - 0.2 * pow(s, 1.6)], X, 0.018, 20, 12);    // tail, upper lobe
   wing((s) => [0, 0.045 - 0.3 * s, -0.93 - 0.22 * s], (s) => [0, 0.03 - 0.3 * s, -1.15 - 0.05 * pow(s, 1.7)], X, 0.014, 14, 12);               // tail, lower lobe
   for (const sg of [-1, 1]) {
     wing((s) => [sg * (0.16 + 0.5 * s), -0.14 - 0.28 * s, 0.34 - 0.5 * pow(s, 1.2)], (s) => [sg * (0.17 + 0.53 * s), -0.12 - 0.31 * s, 0.04 - 0.22 * s * s], Y, 0.016, 20, 12); // pectorals
-    wing((s) => [sg * (0.07 + 0.17 * s), -0.15 - 0.07 * s, -0.3 - 0.1 * s], (s) => [sg * (0.075 + 0.17 * s), -0.14 - 0.07 * s, -0.46 - 0.04 * s], Y, 0.008, 8, 8);  // pelvics
+    wing((s) => [sg * (0.05 + 0.19 * s), -0.09 - 0.1 * s, -0.3 - 0.1 * s], (s) => [sg * (0.055 + 0.19 * s), -0.085 - 0.1 * s, -0.46 - 0.04 * s], Y, 0.008, 8, 8, 2);  // pelvics
   }
   return m;
 }

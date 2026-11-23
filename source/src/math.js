@@ -212,3 +212,6 @@ function icosphere(sub, fn) {
   for (const f of F) m.tri(f[0], f[1], f[2]);
   return m;
 }
+
+// the outline of the atoll: how far (0..14 m) its rock wall is pulled in at each bearing, shared with the sky shader's sand ring
+const RINGN = (a) => 7 + 3.2 * Math.sin(3 * a + 1) + 2.2 * Math.sin(5 * a + 2) + 1.4 * Math.sin(9 * a) + 0.9 * Math.sin(17 * a + 4);

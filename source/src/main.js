@@ -189,7 +189,7 @@ let D;
   for (let z = 0; z < NZ; z++) for (let x = 0; x < NX; x++) {
     const wx = OX + x * VS, wz = OZ + z * VS, w = sstep(136, 152, hypot(wx, wz));
     if (!w) continue;
-    const cap = -5 + 11 * fbm(wx * 0.035, 5, wz * 0.035, 4) + 2.2 * (fbm(wx * 0.17, 9, wz * 0.17, 3) - 0.5), ro = 140 * sstep(176, 192, hypot(wx, wz)); // (the ring ends in a circle, not in the square edge of the world)
+    const cap = -5 + 11 * fbm(wx * 0.035, 5, wz * 0.035, 4) + 2.2 * (fbm(wx * 0.17, 9, wz * 0.17, 3) - 0.5), ro = 140 * sstep(190, 200, hypot(wx, wz) + RINGN(Math.atan2(wz, wx)) + 6 * (fbm(wx * 0.05, 3, wz * 0.05, 3) - 0.5)); // (the ring ends in a circle, not in the square edge of the world)
     for (let y = 0; y < NY; y++) { const i = x + NX * (y + NY * z), c = cap - (OY + y * VS) + (1 - w) * 60 - ro; if (c < D[i]) D[i] = c; }
   }
   // the geyser: the flattest bit of shallow sea (about 3 m deep) gets a small volcano cone with a crater
@@ -237,20 +237,26 @@ let D;
       for (let z = max(1, z0); z <= min(NZ - 2, z1); z++) for (let y = y0; y <= y1; y++) for (let x = max(1, x0); x <= min(NX - 2, x1); x++) {
         const px = OX + x * VS, py = OY + y * VS, pz = OZ + z * VS;
         let h = ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / ll; h = h < 0 ? 0 : h > 1 ? 1 : h;
-        const r = r0 * (1 + wob * (sin(px * 0.31 + pz * 0.23) * 0.5 + sin(py * 0.9 + px * 0.17) * 0.5)) + wob * 2 * sin(h * 6.2832 + px * 0.05);
-        const d = hypot(px - (ax + dx * h), py - (ay + dy * h), pz - (az + dz * h)) - r, i = x + NX * (y + NY * z);
+        // a natural passage: the axis wanders, the bore swells and pinches, and the walls are lumpy at three scales (all functions of
+        // the world position, so the pieces join seamlessly)
+        const cx = ax + dx * h, cy = ay + dy * h, cz = az + dz * h;
+        const wx = wob * 9 * sin(cz * 0.11 + cy * 0.23) + wob * 4 * sin(cz * 0.37 - cx * 0.21), wy = wob * 6 * sin(cx * 0.13 + cz * 0.09 + 1.3) + wob * 3 * sin(cx * 0.41 + cz * 0.33);
+        const sw = sin(cx * 0.09 + cz * 0.07 + sin(cz * 0.05) * 2) * 0.5 + sin(cx * 0.21 - cz * 0.17 + 2) * 0.3;
+        const lump = sin(px * 0.55 + py * 0.8 + sin(pz * 0.7) * 1.5) * 0.5 + sin(pz * 0.63 - py * 0.71 + sin(px * 0.9)) * 0.5, ln2 = sin(px * 1.9 + pz * 1.3 + py * 1.7) * 0.5 + sin(py * 2.3 - px * 1.1 + pz * 0.9) * 0.5, ln3 = sin(px * 0.23 + py * 0.41) * sin(pz * 0.29 + py * 0.19);
+        const r = max(r0 * 1.18, r0 * (1.25 + wob * (sw * 1.0 + lump * 1.0 + ln2 * 0.4 + ln3 * 0.6))); // (never narrower than the plain bore: it stays passable)
+        const d = hypot(px - cx - wx, (py - cy - wy) * (1 - 0.12 * (0.5 + 0.5 * sin(cz * 0.15 + cx * 0.1 + 1))), pz - cz) - r, i = x + NX * (y + NY * z);
         if (d < D[i]) D[i] = d;
       }
     };
     for (let k = 0; k + 1 < TP.length; k++) {
       const [ax, az] = TP[k], [bx, bz] = TP[k + 1], n = Math.ceil(hypot(bx - ax, bz - az) / 8);
-      for (let j = 0; j < n; j++) { const f0 = j / n, f1 = (j + 1) / n; carve(ax + (bx - ax) * f0, TY + 1.2 * sin((k + f0) * 1.7), az + (bz - az) * f0, ax + (bx - ax) * f1, TY + 1.2 * sin((k + f1) * 1.7), az + (bz - az) * f1, TR, 0.09); }
+      for (let j = 0; j < n; j++) { const f0 = j / n, f1 = (j + 1) / n; carve(ax + (bx - ax) * f0, TY + 1.2 * sin((k + f0) * 1.7), az + (bz - az) * f0, ax + (bx - ax) * f1, TY + 1.2 * sin((k + f1) * 1.7), az + (bz - az) * f1, TR, 0.17); }
     }
     // shafts: near the start, the middle and the end, at the nearest open sea floor
     for (const k of [0, 3, 7]) {
       let bx = 0, bz = 0, bt = -99, bs = 1e9;
       for (let r = 0; r < 14; r += 2) for (let a = 0; a < 6.28; a += 0.5) { const x = TP[k][0] + r * cos(a), z = TP[k][1] + r * sin(a), g = colTop(x, z); if (g < -47 || g > -36) continue; const s = r + abs(g + 43); if (s < bs) { bs = s; bx = x; bz = z; bt = g; } }
-      if (bt > -90 && bs < 1e8) { carve(bx, TY, bz, bx, bt + 3, bz, 3, 0.1); carve(TP[k][0], TY, TP[k][1], bx, TY, bz, TR, 0.09); TUN.push([bx, bt, bz]); }
+      if (bt > -90 && bs < 1e8) { carve(bx, TY, bz, bx, bt + 3, bz, 3, 0.1); carve(TP[k][0], TY, TP[k][1], bx, TY, bz, TR, 0.17); TUN.push([bx, bt, bz]); }
     }
     TUN.start = TP[0];
     // the far end opens into a round chamber
