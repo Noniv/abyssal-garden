@@ -510,8 +510,8 @@ Wd.glints = Wd.volD = Wd.gm = T.vb = T.ib = T.wp = T.wn = 0;
 // ---------------------------------------------------------------- render targets (rebuilt on resize)
 // The scene is drawn at `pix` pixels and scaled up to the window. frame() tunes it and the draw distance scale `det`
 // for 60 fps; both start where the last visit left them.
-const PIXMAX = 2560 * 1440, PIXMIN = mob ? 25e4 : 5e5, DETMIN = 0.4;
-let W = 0, H = 0, DW = 0, DH = 0, pix = +SV[1] || (LV > 1 ? 41e4 : mob ? 1280 * 720 : PIXMAX), det = +SV[2] || 1, dynN = 0, dynT = 0, dynG = 0, dynGN = 0, dynBad = 0, dynOk = 0, dynWait = 3;
+const PIXMAX = 2560 * 1440, PIXMIN = LITE ? 12e4 : mob ? 25e4 : 5e5, DETMIN = LITE ? 0.3 : 0.4;
+let W = 0, H = 0, DW = 0, DH = 0, pix = +SV[1] || (LITE ? 22e4 : LV > 1 ? 41e4 : mob ? 1280 * 720 : PIXMAX), det = +SV[2] || (LITE ? 0.6 : 1), dynN = 0, dynT = 0, dynG = 0, dynGN = 0, dynBad = 0, dynOk = 0, dynWait = 3;
 let passScene, passRays, passBlur, bgBlur, passPost, bgRays, bgPost, bloomPass = [], bloomBG = [], targets = [];
 const NB = 6;
 function resize() {

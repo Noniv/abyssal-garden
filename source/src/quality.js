@@ -11,4 +11,6 @@ let SV = [], LV, bad;
 try { SV = (localStorage.abyssal || '').split(','); bad = localStorage.abyssalLoad; } catch {}
 LV = SV[0] ? +SV[0] : mob ? (mem > 7 ? 1 : 2) : mem <= 4 ? 2 : 0;
 if (bad && LV < 2) { SV = [++LV]; keep('abyssal', LV); }
-const THIN = 1 << LV, SHADOW = LV ? 2048 : 4096, AA = LV > 1 ? 1 : 4, WATER = LV > 1 ? 256 : 512, RAYN = LV > 1 ? 12 : 34;
+// LITE: Low on a phone or tablet. Smaller shadow map and water texture, 6 light shaft steps, lower starting resolution and draw distance.
+const LITE = mob && LV > 1;
+const THIN = 1 << LV, SHADOW = LITE ? 1024 : LV ? 2048 : 4096, AA = LV > 1 ? 1 : 4, WATER = LITE ? 128 : LV > 1 ? 256 : 512, RAYN = LITE ? 6 : LV > 1 ? 12 : 34;
