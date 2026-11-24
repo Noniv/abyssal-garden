@@ -31,6 +31,7 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 - **Sound with a place**: the low rumble of the vents grows as you approach and pans to where they are; a blacktip passing close is heard as a pressure whoosh.
 - **Sleeping nurse sharks**: tawny ochre, blotched with dark spots, sleeping in piles of four to six on the flat sea floor, noses together and slender, S-curved bodies fanned out like spokes, slowly flapping their pointed fins, swaying their tails and blinking now and then as they breathe. They are solid, like rocks, and each group is a red pin on the map
 - **Four dark tunnels** winding through the big rock walls and the pillar: swim in at one mouth and find your way to the other. Inside it is pitch black, so your torch switches itself on a few metres in (with a click) and off again on the way out. Both ends of every tunnel are marked on the map with an orange dot and the tunnel's letter
+- **Two scuba divers** swim the sea on long loops worked out at startup so they never meet rock: one in black and yellow cruises at mid-depth, one in a pink suit drifts more slowly just above the sea floor. Both kick their fins, bend their arms and breathe out bursts of bubbles from the regulator.
 - **Seagulls**: a flock rests on the rocks that stand out of the water. Walk or swim up to them and they take off, circle high over the atoll, and settle again once you have gone.
 - **A little map circle** (bottom right) showing where you are, which way you look and where the six viewpoints are
 - **An underwater current** that carries you gently in one direction while you bob up and down, if you float still
@@ -52,7 +53,7 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 | Geyser (easter egg) | `G` takes you to the geyser; swim over it |
 | Long tunnel | `T` drops you above its first shaft; it runs under the sea floor from one end of the world to the other (the torch switches on by itself) |
 | Easter eggs | The first tunnel shaft is a downdraft that pulls you in. Hang still by a quiet spot on the deep floor and a whale sings and passes overhead. After a while in the dark with the torch on, glow fish gather in its beam. Hang still near the floor for a minute and a shark comes to circle you. Hang still near the surface and jellyfish drift in to a ring around you. The geyser throws you 400 m up (about 9 s) over a made-up archipelago that goes on to the horizon, with the sound dying away as you climb; you fall back, drifting to a landing on the water ~28 m from the geyser. |
-| Easter egg shortcuts | `G` geyser · `T` tunnel entrance · `U` whale spot (hold still) · `I` glow fish · `O` downdraft · `P` shark · `J` jellyfish · `K` the 400 m throw · `V` the seagulls |
+| Easter egg shortcuts | `G` geyser · `T` tunnel entrance · `U` whale spot (hold still) · `I` glow fish · `O` downdraft · `P` shark · `J` jellyfish · `K` the 400 m throw · `V` the seagulls · `X` the divers (press again for the other one) |
 | Up / down | `E` / `Q` |
 | Swim faster | Hold `Shift`, or tap `↑` twice quickly and hold it on the second tap |
 | Jump to a viewpoint | `1` to `6` (the spots in the screenshots) |

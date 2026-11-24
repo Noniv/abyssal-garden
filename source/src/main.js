@@ -124,6 +124,7 @@ const PREM = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, al
 const pPuf = scenePipe(mSpr, 'vsPuff', 'fsPuff', [ibBub], { strip: true, blend: PREM });
 const pJelly = scenePipe(mAnim, 'vsJelly', 'fsJelly', [vbSolid, ibAnim], { blend: PREM });
 const pGull = scenePipe(mAnim, 'vsGull', 'fsGull', [vbSolid, ibAnim]);
+const pDiver = scenePipe(mAnim, 'vsDiver', 'fsDiver', [vbSolid, ibAnim]);
 const pGl = scenePipe(mLeaf, 'vsGl', 'fsGl', [ibBub], { strip: true, blend: ADD, constants: { ROWS: 7 } });
 const pSolidSh = shadowPipe(mSolid, 'vs', [vbSolid, ibSolid]), pTerrSh = shadowPipe(mSolid, 'vs', [vbSolid, ibSolid], { cull: 'front' });
 const pLeafSh = shadowPipe(mLeaf, 'vs', [ibLeaf], { strip: true, constants: { ROWS: 3 } });
@@ -407,7 +408,7 @@ const meshes = [meshChunk(1, 3), meshChunk(7, 3), meshChunk(13, 3), meshChunk(22
   meshCoral(0), meshCoral(1), meshTubes()].map((m) => m.build());
 meshes.push(meshFluke(), meshShip().build(), meshManta().build(), meshFish().build(),
   meshChunk(3).build(), meshChunk(11).build(), meshChunk(29).build(), meshChunk(5, 3).build(), meshChunk(17, 3).build(), meshChunk(41, 3).build(), meshChunk(9, 1).build(), meshCoral(0, 1).build(), meshCoral(1, 1).build(), meshChunk(5, 2, 1).build(), meshChunk(17, 2, 1).build(), meshChunk(41, 2, 1).build(), meshShark().build(), meshNurse().build(),
-  meshUrchin().build(), meshStarfish().build(), meshShell().build(), meshCucumber().build(), meshEel().build(), meshTable().build(), meshBrain().build(), meshAnemone().build(), meshJelly().build(), meshGull().build());
+  meshUrchin().build(), meshStarfish().build(), meshShell().build(), meshCucumber().build(), meshEel().build(), meshTable().build(), meshBrain().build(), meshAnemone().build(), meshJelly().build(), meshGull().build(), meshDiver().build());
 let nV = 0, nI = 0;
 for (const m of meshes) { m.v0 = nV; m.i0 = nI; nV += m.nv; nI += m.ib.length; }
 const allV = new Uint8Array(nV * 16), allI = new Uint32Array(nI);
@@ -422,8 +423,9 @@ const ibBig = buf(new Uint8Array(Wd.big.buf), BU.VERTEX), ibBigF = buf(new Uint8
 const ibFish = buf(Wd.fish, BU.VERTEX), ibManta = buf(Wd.mantas, BU.VERTEX), ibShark = buf(Wd.sharks, BU.VERTEX), ibNurse = buf(Wd.nurse, BU.VERTEX), ibPup = device.createBuffer({ size: max(32, Wd.pups.byteLength), usage: BU.VERTEX | BU.COPY_DST }), ibPupB = device.createBuffer({ size: max(16, Wd.pups.byteLength / 2), usage: BU.VERTEX | BU.COPY_DST }), ibBubbles = buf(Wd.bubbles, BU.VERTEX), ibSnowB = buf(Wd.snow, BU.VERTEX), ibJelly = buf(Wd.jelly, BU.VERTEX);
 const ibGl = buf(Wd.glints, BU.VERTEX), nGl = Wd.glints.length / 8;
 const nFish = Wd.fish.length / 8, nManta = Wd.mantas.length / 8, nShark = Wd.sharks.length / 8, nNurse = Wd.nurse.length / 16, nPup = Wd.pups.length / 8, nBub = Wd.bubbles.length / 8, nSnow = Wd.snow.length / 4, nJelly = Wd.jelly.length / 8;
-const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27], JELLY = meshes[36], GULL = meshes[37];
+const MANTA = meshes[12], FISH = meshes[13], SHARK = meshes[26], NURSE = meshes[27], JELLY = meshes[36], GULL = meshes[37], DIVER = meshes[38];
 const NGU = 14, GU = new Float32Array(NGU * 8), ibGull = device.createBuffer({ size: NGU * 32, usage: BU.VERTEX | BU.COPY_DST });
+const NDB = 400, DB = new Float32Array(NDB * 8), ibDB = device.createBuffer({ size: NDB * 32, usage: BU.VERTEX | BU.COPY_DST }), ibDiver = device.createBuffer({ size: 64, usage: BU.VERTEX | BU.COPY_DST }); // the divers and their bubbles
 const ibFloorL = Wd.floorL.map((a) => (a.length ? buf(a, BU.VERTEX) : null));
 // the map circle: the arena picture from the world generator, with viewpoints 1-6, the player and where they look
 const mmBg = document.createElement('canvas'); mmBg.width = mmBg.height = 128; mmBg.getContext('2d').putImageData(new ImageData(Wd.mapImg, 128, 128), 0, 0);
@@ -672,6 +674,7 @@ function render() {
   r.setPipeline(pManta); r.setVertexBuffer(1, ibManta); r.drawIndexed(MANTA.ib.length, nManta, MANTA.i0, MANTA.v0, 0);
   r.setPipeline(pShark); r.setVertexBuffer(1, ibShark); r.drawIndexed(SHARK.ib.length, nShark, SHARK.i0, SHARK.v0, 0);
   r.setPipeline(pGull); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32'); r.setVertexBuffer(1, ibGull); r.drawIndexed(GULL.ib.length, NGU, GULL.i0, GULL.v0, 0);
+  if (DIVERS.length) { r.setPipeline(pDiver); r.setVertexBuffer(1, ibDiver); r.drawIndexed(DIVER.ib.length, DIVERS.length, DIVER.i0, DIVER.v0, 0); }
   // life on the sea floor and reef forms: same shader and layout as the sponges, drawn once per kind
   r.setPipeline(pSolid); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32');
   for (let k = 0; k < 8; k++) if (ibFloorL[k]) { const me = meshes[28 + k]; r.setVertexBuffer(1, ibFloorL[k]); r.drawIndexed(me.ib.length, Wd.floorL[k].length / 12, me.i0, me.v0, 0); }
@@ -688,6 +691,7 @@ function render() {
   r.setPipeline(pBub); r.setVertexBuffer(0, ibBubbles); r.draw(4, nBub);
   if (nGey) { r.setPipeline(pBub); r.setVertexBuffer(0, ibGey); r.draw(4, nGey); }
   if (nVent) { r.setPipeline(pBub); r.setVertexBuffer(0, ibVent); r.draw(4, nVent); }
+  if (dvBub) { r.setPipeline(pBub); r.setVertexBuffer(0, ibDB); r.draw(4, NDB); }
   if (sbT0) { r.setPipeline(pBub); r.setVertexBuffer(0, ibSB); r.draw(4, 170); }
   r.setPipeline(pGl); r.setVertexBuffer(0, ibGl); r.draw(4, nGl);
   r.setPipeline(pJelly); r.setVertexBuffer(0, vbMesh); r.setIndexBuffer(ibMesh, 'uint32'); r.setVertexBuffer(1, ibJelly); r.drawIndexed(JELLY.ib.length, nJelly, JELLY.i0, JELLY.v0, 0);
@@ -1005,6 +1009,112 @@ function gullStep(dt) {
   }
   Q.writeBuffer(ibGull, 0, GU);
 }
+// scuba divers: two live in the sea, each on a long closed loop worked out once at startup so that it never meets rock (every point of the
+// loop is checked for clear water round the whole body). The first, in black and yellow, cruises at mid-depth at a steady pace; the second,
+// in pink, drifts more slowly just above the sea floor. They breathe out in bursts of bubbles from the regulator (each bubble is let go at
+// the mouthpiece and climbs on its own; the ring buffer DB holds the last NDB of them)
+const DIVERS = [], DVI = new Float32Array(16), DBT = new Float32Array(NDB * 2), SHIP = [59.5, -23, 6];
+let dvBub = false, dbI = 0, diverTour = 0;
+function planDivers() {
+  const avoid = [[SHIP[0], SHIP[2], 22], [-5, -4, 9]]; if (GEY) avoid.push([GX, GZ, 9]); // (the ship and the whale tail are not solid to the camera, so keep clear of them by hand)
+  const clear = (x, y, z) => sdAt(x, y, z) < -0.9, far = (x, z) => hypot(x, z) < 130 && avoid.every((q) => hypot(x - q[0], z - q[1]) > q[2]);
+  const floorAt = (x, z, hint) => { // the sea floor under (x, z): near the last one, or searched for from the surface down
+    if (hint !== undefined) return groundAt(x, z, hint);
+    for (let y = -3; y > -52; y -= 1.5) if (sdAt(x, y, z) > 0) return groundAt(x, z, y + 1.5);
+    return -52;
+  };
+  const NR = 48, STEP = 3.6, RMAX = 100, TAU = 6.2832;
+  // the diver's height at a point: the first cruises between 6 and 13 m down; the second keeps 2.2 m over the floor
+  // free water round a centre: how far it goes in each of NR directions at the diver's height, then a loop radius inside it
+  const radii = (kind, cx, cz) => {
+    let g0; if (kind) { g0 = floorAt(cx, cz); if (g0 > -7) return null; } else if (!clear(cx, -10, cz)) return null;
+    const rho = [];
+    for (let k = 0; k < NR; k++) {
+      const a = k / NR * TAU, ca = cos(a), sa = sin(a); let r = STEP, gp = g0;
+      for (; r <= RMAX; r += STEP) {
+        const x = cx + ca * r, z = cz + sa * r; if (!far(x, z)) break;
+        if (kind) { const g = groundAt(x, z, gp); if (g > -7 || abs(g - gp) > 3.2 || !clear(x, g + 2.2, z) || !clear(x, g + 2.9, z)) break; gp = g; }
+        else if (!clear(x, -7, z) || !clear(x, -10, z) || !clear(x, -13, z)) break;
+      }
+      rho.push(max(0, r - STEP - 6)); // (kept 6 m back from the first rock: the path leans in and out)
+    }
+    const m = rho.map((v, k) => { let h = v; for (let d = -1; d <= 1; d++) h = min(h, rho[(k + d + NR) % NR]); return h; }); // (never beyond the least free of its neighbours)
+    for (let pass = 0; pass < 3; pass++) { const c = m.slice(); for (let k = 0; k < NR; k++) m[k] = (c[(k + NR - 1) % NR] + 2 * c[k] + c[(k + 1) % NR]) / 4; }
+    return m;
+  };
+  // the loop round a centre as a closed path (about every 2.2 m), with its height; null if the whole body does not fit all the way round
+  const build = (kind, cx, cz, m, p3) => {
+    let per = 0; for (let k = 0; k < NR; k++) per += hypot(m[k] * cos(k / NR * TAU) - m[(k + 1) % NR] * cos((k + 1) / NR * TAU), m[k] * sin(k / NR * TAU) - m[(k + 1) % NR] * sin((k + 1) / NR * TAU));
+    const N = max(48, floor(per / 2.2)), xz = [];
+    for (let i = 0; i < N; i++) { const u = i / N * NR, k = floor(u), f = u - k, r = m[k % NR] * (1 - f) + m[(k + 1) % NR] * f, th = i / N * TAU; xz.push([cx + r * cos(th), cz + r * sin(th), th]); }
+    const pts = []; let gp;
+    for (const [x, z, th] of xz) {
+      let y; if (kind === 0) { const yb = -10 + 3 * sin(2 * th + p3); y = min(-4.5, max(yb, groundAt(x, z, yb) + 3.2)); } else { gp = floorAt(x, z, gp); y = min(-4.5, gp + 2.2); }
+      pts.push([x, y, z]);
+    }
+    { const ys = pts.map((q) => q[1]); for (let i = 0; i < N; i++) { let h = -99; for (let k = -6; k <= 6; k++) h = max(h, ys[(i + k + N) % N]); pts[i][1] = min(-4.5, h); } } // (first up over every bump of the floor within 13 m, then smoothed: the loop rides over hills instead of through them)
+    for (let pass = 0; pass < 4; pass++) { const ys = pts.map((q) => q[1]); for (let i = 0; i < N; i++) pts[i][1] = (ys[(i + N - 1) % N] + 2 * ys[i] + ys[(i + 1) % N]) / 4; }
+    for (let i = 0; i < N; i++) { // the whole body must be in clear water: to either side, above (the tanks) and below (the fins)
+      const q = pts[i], n = pts[(i + 1) % N], b = pts[(i + N - 1) % N], tx = n[0] - b[0], tz = n[2] - b[2], tl = hypot(tx, tz) || 1, lx = -tz / tl * 0.9, lz = tx / tl * 0.9;
+      if (!far(q[0], q[2]) || !clear(q[0], q[1], q[2]) || !clear(q[0] + lx, q[1], q[2] + lz) || !clear(q[0] - lx, q[1], q[2] - lz) || !clear(q[0], q[1] + 0.7, q[2]) || !clear(q[0], q[1] - 0.55, q[2])) return null;
+    }
+    const cum = [0]; for (let i = 1; i < N; i++) cum.push(cum[i - 1] + hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]));
+    cum.push(cum[N - 1] + hypot(pts[0][0] - pts[N - 1][0], pts[0][1] - pts[N - 1][1], pts[0][2] - pts[N - 1][2]));
+    return { pts, cum, tot: cum[N], c: [cx, cz] };
+  };
+  const others = [];
+  for (const kind of [0, 1]) { // centres on a grid; the free space round each gives a loop; the longest loops that really fit are taken
+    const cands = [], gs = kind ? 16 : 12;
+    for (let cx = -120; cx <= 120; cx += gs) for (let cz = -120; cz <= 120; cz += gs) {
+      if (!far(cx, cz) || others.some((o) => hypot(o[0] - cx, o[1] - cz) < 35)) continue;
+      const m = radii(kind, cx, cz); if (!m) continue;
+      let per = 0; for (let k = 0; k < NR; k++) per += m[k]; cands.push({ cx, cz, m, per });
+    }
+    cands.sort((a, b) => b.per - a.per);
+    for (let k = 0; k < min(cands.length, 14); k++) {
+      const c = cands[k], L = build(kind, c.cx, c.cz, c.m, 1.7 * k);
+      if (L) { DIVERS.push({ ...L, sp: kind ? 0.65 : 1.2, s: (k * 97.3) % L.tot, sd: 0.37 + 0.41 * kind, pink: kind, off: 1.9 * kind, acc: 0 }); others.push(L.c); break; }
+    }
+  }
+  diverStep(0);
+}
+// where a diver is after swimming s metres round its loop
+function loopAt(d, s) {
+  const n = d.pts.length; s = (s % d.tot + d.tot) % d.tot;
+  let lo = 0, hi = n - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (d.cum[m] <= s) lo = m; else hi = m - 1; }
+  const a = d.pts[lo], b = d.pts[(lo + 1) % n], f = (s - d.cum[lo]) / (d.cum[lo + 1] - d.cum[lo] || 1);
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+function diverStep(dt) {
+  const t = F[TIME];
+  DIVERS.forEach((d, k) => {
+    d.s += d.sp * dt;
+    const p = loopAt(d, d.s), a = loopAt(d, d.s - 2), b = loopAt(d, d.s + 2), yaw = atan2(b[0] - a[0], b[2] - a[2]), pit = atan2(b[1] - a[1], hypot(b[0] - a[0], b[2] - a[2]) || 1e-3), o = k * 8;
+    DVI[o] = p[0]; DVI[o + 1] = p[1]; DVI[o + 2] = p[2]; DVI[o + 3] = yaw; DVI[o + 4] = pit; DVI[o + 5] = 1; DVI[o + 6] = d.sd; DVI[o + 7] = d.pink;
+    // a breath every 5 s, breathing out for the first 1.5 s of it: a stream of bubbles from the mouthpiece (only while you are near enough to see it)
+    const ph = (t + d.off) % 5;
+    if (ph < 1.5 && hypot(F[CX] - p[0], F[CZ] - p[2]) < 70) {
+      d.acc += (30 - 14 * ph / 1.5) * dt * (d.pink ? 0.8 : 1);
+      const sp = sin(pit), cp = cos(pit), sy = sin(yaw), cy = cos(yaw);
+      // the mouthpiece, where the head (which nods and looks about, as in the shader) has put it
+      const hn = 0.08 * sin(t * 0.5 + d.sd * 4), hy = 0.4 * sin(t * 0.35 + d.sd * 7), ny = -0.01 * cos(hn) - 0.35 * sin(hn) + 0.04, nz = -0.01 * sin(hn) + 0.35 * cos(hn), mx = nz * sin(hy), mz = nz * cos(hy) + 0.62;
+      while (d.acc >= 1) {
+        d.acc -= 1;
+        const ly = ny * cp + mz * sp, lz = mz * cp - ny * sp, i = dbI++ % NDB, q = i * 8, bx = p[0] + mx * cy + lz * sy + (prn() - 0.5) * 0.06, by = p[1] + ly + (prn() - 0.5) * 0.04, bz = p[2] - mx * sy + lz * cy + (prn() - 0.5) * 0.06;
+        const rg = -by + 1.2, rad = 0.035 + 0.075 * prn() * prn() + 0.02 * prn(), spd = max(0.7 + rad * 5 + prn() * 0.25, rg / 22); // (deep ones rise quicker: no bubble lives longer than 22 s)
+        DB[q] = bx; DB[q + 1] = by; DB[q + 2] = bz; DB[q + 3] = rad; DB[q + 4] = ((-t * spd / rg) % 1 + 1) % 1; DB[q + 5] = spd; DB[q + 6] = rg; DB[q + 7] = 0.05 + 0.07 * prn();
+        DBT[i * 2] = t; DBT[i * 2 + 1] = rg / spd; dvBub = true;
+      }
+    } else d.acc = 0;
+  });
+  if (DIVERS.length) Q.writeBuffer(ibDiver, 0, DVI);
+  if (dvBub) { // a bubble that has reached the surface is switched off (vsBub would loop it back to the mouthpiece)
+    let live = false;
+    for (let i = 0; i < NDB; i++) if (DBT[i * 2 + 1] > 0) { if (t - DBT[i * 2] > DBT[i * 2 + 1]) { DB[i * 8 + 3] = 0; DBT[i * 2 + 1] = 0; } else live = true; }
+    Q.writeBuffer(ibDB, 0, DB);
+    if (!live) dvBub = false;
+  }
+}
 function eggStep(dt) {
   if (sbT0 && F[TIME] - sbT0 > 11) { sbT0 = 0; Q.writeBuffer(ibSB, 0, new Float32Array(170 * 8)); }
   if (menu) return;
@@ -1170,7 +1280,7 @@ function frame(now) {
     F[YAW] = yaw; F[PIT] = pitch; F[VX] = wvx; F[VY] = wvy - gr; F[VZ] = wvz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
     if (F[CY] < 14) collide(); else { F[CX] += F[MX]; F[CY] += F[MY]; F[CZ] += F[MZ]; } // (above the rock there is nothing to hit)
   }
-  eggStep(dt); gullStep(dt);
+  eggStep(dt); gullStep(dt); diverStep(dt);
   puffStep(dt);
   render();
   if ((mapT += dtr) > 50) { mapT = 0; if (!menu && !mm.style.visibility) drawMap(); }
@@ -1216,6 +1326,15 @@ const key = (e, v) => {
           for (let q = 1; q < 7 && ok; q++) { const f = q / 8; if (sdAt(px + (P[0] - px) * f, 3 + (P[1] + 0.3 - 3) * f, pz + (P[2] - pz) * f) > -0.5) ok = false; }
           if (ok) { F[CX] = px; F[CY] = 2.8; F[CZ] = pz; lookAt(px, 3, pz, P[0], P[1] + 0.3, P[2]); done = true; gHold = F[TIME] + 12; }
         } }
+      }
+      else if (e.code === 'KeyX' && DIVERS.length) { // the divers, one after the other: on the water to the side of one and a little ahead, looking at it (it swims on)
+        const k = diverTour++ % DIVERS.length, o = k * 8, px = DVI[o], py = DVI[o + 1], pz = DVI[o + 2], yw = DVI[o + 3];
+        fly = 0; F[VX] = F[VY] = F[VZ] = 0;
+        let done = false;
+        for (const R of [7, 9, 12, 16]) for (const sg of [1, -1]) if (!done) {
+          const cx = px + sin(yw) * R * 0.7 + cos(yw) * R * sg, cy = py + 0.6, cz = pz + cos(yw) * R * 0.7 - sin(yw) * R * sg;
+          if (sdAt(cx, cy, cz) < -0.9 && sdAt((cx + px) / 2, (cy + py) / 2, (cz + pz) / 2) < -0.9) { lookAt(cx, cy, cz, px, py, pz); done = true; }
+        }
       }
       else if (e.code === 'KeyJ' && GEY) { fly = 0; F[VX] = F[VY] = F[VZ] = 0; stillT = 21; lookAt(GX + 9, -3.5, GZ, GX + 20, -2, GZ); } // jellyfish ring: held still near the surface for 20 s already
       else if (e.code === 'KeyK' && GEY) { F[CX] = GX; F[CY] = 0.5; F[CZ] = GZ; F[VX] = F[VY] = F[VZ] = 0; F[PIT] = -0.9; startTrip(); } // the 400 km throw, from the geyser
@@ -1266,6 +1385,9 @@ $('q').querySelectorAll('button').forEach((b, i) => { if (i === 2 - LV) b.classN
 document.addEventListener('pointerlockchange', () => ui(!document.pointerLockElement));
 
 // draw the first frame and wait for the GPU to finish it (pipelines get compiled on first use) before the reveal
+lookAt(...POSES[0]);
+await say('Sending in the divers…', 0.99, 300);
+planDivers();
 lookAt(...POSES[0]);
 await say('Letting the light in…', 1, 400);
 render(); await Q.onSubmittedWorkDone();

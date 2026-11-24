@@ -15,6 +15,8 @@
   window.sdq = sdAt;
   window.setPit = (p) => { F[PIT] = p; };
   window.whaleNow = () => whaleShow();
+  window.diverCam = (k, dist, side, up) => { const o = k * 8, x = DVI[o], y = DVI[o + 1], z = DVI[o + 2], yw = DVI[o + 3], px = x + side * (Math.cos(yw) * dist) + Math.sin(yw) * (1 - side) * dist, pz = z - side * (Math.sin(yw) * dist) + Math.cos(yw) * (1 - side) * dist, dx = x - px, dz = z - pz; F[CX] = px; F[CY] = y + up; F[CZ] = pz; F[YAW] = Math.atan2(dx, -dz); F[PIT] = Math.atan2(-up, Math.hypot(dx, dz)); F[VX] = F[VY] = F[VZ] = 0; return [x, y, z, yw]; };
+  window.divers = () => DIVERS.map((d, k) => ({ len: Math.round(d.tot), n: d.pts.length, sp: d.sp, now: [...DVI.slice(k * 8, k * 8 + 4)].map((v) => +v.toFixed(1)), ymin: Math.min(...d.pts.map((q) => q[1])), ymax: Math.max(...d.pts.map((q) => q[1])) }));
   window.flyUp = () => { fly = 1; F[VY] = 0; };
   window.egg = (k, v) => { ({ still: () => { stillT = v; }, torch: () => { torchHold = v; }, shark: () => { shSeen = 0; stillT = v; } })[k](); };
   window.eggs = () => ({ whale: WHALE, tun: TUN, tend: TUN.end, fishK, jelBloom, shT, nightK, stillT, torchOn });

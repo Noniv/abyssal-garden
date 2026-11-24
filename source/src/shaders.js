@@ -951,6 +951,59 @@ fn spots3(p: vec3f, sc: f32, dens: f32, rmin: f32, rmax: f32) -> f32 {
   c += E * pow(sat(dot(nn, normalize(V + L))), 30.) * .12;
   return fin(fog(c, i.wp, z));
 }
+// the diver: an instance is x, y, z, yaw | pitch (nose up), size, seed, suit (0 black and yellow, 1 pink; the pink diver kicks more slowly). A skeleton of bones (the vertex's aux, in twentieths: see meshDiver),
+// each turned about its joint, the outer joints first: a flutter kick (hips, knees, ankles, the legs in turn), the arms sculling gently
+// at the shoulders and elbows, the head nodding and looking about
+struct PN { p: vec3f, n: vec3f };
+fn rxp(q: PN, c: vec3f, a: f32) -> PN { let s = sin(a); let k = cos(a); let d = q.p - c; return PN(c + vec3f(d.x, d.y * k - d.z * s, d.y * s + d.z * k), vec3f(q.n.x, q.n.y * k - q.n.z * s, q.n.y * s + q.n.z * k)); }
+fn ryp(q: PN, c: vec3f, a: f32) -> PN { let s = sin(a); let k = cos(a); let d = q.p - c; return PN(c + vec3f(d.x * k + d.z * s, d.y, -d.x * s + d.z * k), vec3f(q.n.x * k + q.n.z * s, q.n.y, -q.n.x * s + q.n.z * k)); }
+@vertex fn vsDiver(i: VI) -> VO {
+  var o: VO;
+  let t = g.cam.w; let sz = i.b.y; let sd = i.b.z;
+  var q = PN(i.p, i.n.xyz);
+  let b = i32(round(i.n.w * 20.));
+  let ph = t * (4.2 - 1.4 * i.b.w) + sd * 20.;
+  if (b >= 12 && b <= 17) {
+    let sg = select(-1., 1., b >= 15); let lb = b - select(12, 15, b >= 15); let off = select(0., 3.14159, sg > 0.);
+    if (lb == 2) { q = rxp(q, vec3f(sg * .09, -.03, -.9), -.14 * sin(ph + off + .6)); }
+    if (lb >= 1) { q = rxp(q, vec3f(sg * .09, -.015, -.47), .06 + .3 * max(0., sin(ph + off + 1.))); }
+    q = rxp(q, vec3f(sg * .09, 0., -.02), .15 * sin(ph + off));
+  } else if (b >= 6 && b <= 11) {
+    let sg = select(-1., 1., b >= 9); let ab = b - select(6, 9, b >= 9); let off = select(0., 1.7, sg > 0.);
+    if (ab >= 1) { q = rxp(q, vec3f(sg * .25, -.05, .26), .14 * sin(t * 1.1 + off + sd * 5.)); }
+    q = rxp(q, vec3f(sg * .225, -.01, .52), .05 * sin(t * .9 + off + sd * 3.));
+  } else if (b == 2 || b == 3 || b == 18) {
+    q = rxp(q, vec3f(0., .04, .62), .08 * sin(t * .5 + sd * 4.));
+    q = ryp(q, vec3f(0., .04, .62), .4 * sin(t * .35 + sd * 7.));
+  }
+  let sp = sin(i.b.x); let cp = cos(i.b.x);
+  let l = vec3f(q.p.x, q.p.y * cp + q.p.z * sp, q.p.z * cp - q.p.y * sp);
+  let nn = vec3f(q.n.x, q.n.y * cp + q.n.z * sp, q.n.z * cp - q.n.y * sp);
+  let cy = cos(i.a.w); let sy = sin(i.a.w);
+  let w = i.a.xyz + vec3f(l.x * cy + l.z * sy, l.y, -l.x * sy + l.z * cy) * sz;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = vec3f(nn.x * cy + nn.z * sy, nn.y, -nn.x * sy + nn.z * cy); o.op = i.p; o.sd = i.b.w; o.lt = i.n.w;
+  return o;
+}
+@fragment fn fsDiver(i: VO) -> @location(0) vec4f {
+  let V = normalize(g.cam.xyz - i.wp); var nn = normalize(i.n); if (dot(nn, V) < 0.) { nn = -nn; }
+  let L = g.sun.xyz; let z = zone(i.wp); let vv = vol(i.wp);
+  let p = i.op; let b = i32(round(i.lt * 20.));
+  let pk = step(.5, i.sd); let yel = mix(vec3f(.95, .72, .06), vec3f(.93, .93, .95), pk);     // the accent colour: yellow, or white on the pink suit
+  var alb = mix(vec3f(.025, .03, .05), vec3f(1., .2, .5), pk); var sh = .25; var spw = 40.;                                          // wetsuit
+  if (b == 1) { alb = mix(yel, vec3f(.06, .08, .14), pk); sh = .3; }                                                                     // vest
+  else if (b == 2) { alb = mix(alb, vec3f(.72, .5, .4), ss(.82, .85, p.z)); }                             // hood, the face showing
+  else if (b == 3) { alb = vec3f(.01, .02, .03); sh = 2.2; spw = 220.; }                                  // mask glass
+  else if (b == 4) { alb = mix(vec3f(.58, .62, .64), vec3f(.04, .04, .045), max(max(ss(.035, .02, abs(p.z - .1)), ss(.035, .02, abs(p.z - .32))), ss(.44, .48, p.z))); sh = .6; spw = 90.; }  // silver tanks, a band and the valve end
+  else if (b == 5 || b == 18) { alb = vec3f(.05, .05, .055); sh = .5; spw = 60.; }                        // hoses, mask frame, mouthpiece
+  else if (b == 8 || b == 11) { alb = vec3f(.7, .48, .38); sh = .15; }                                    // hands
+  else if (b == 6 || b == 9) { alb = mix(alb, yel, ss(.012, .0, abs(p.z - .39) - .018)); }                // a stripe round each upper arm
+  else if (b >= 12 && b <= 16 && b != 14) { alb = mix(alb, yel, ss(.058, .068, select(-1., 1., b >= 15) * (p.x - select(-.09, .09, b >= 15)))); } // a stripe down the outside of each leg
+  else if (b == 14 || b == 17) { alb = mix(yel, vec3f(.9, .3, .55), pk); sh = .3; }                                                    // fins
+  let E = sunE(i.wp.y, z) * shadow4(i.wp + nn * .3);
+  var c = alb * (E * sat(dot(nn, L)) * .9 + amb(i.wp, vec3f(nn.x, abs(nn.y) * .55 + .25, nn.z), vv.g, z) * 1.1 + side(i.wp, nn, 1., z) * .5);
+  c += E * pow(sat(dot(nn, normalize(V + L))), spw) * sh + pk * alb * .12;                            // (the pink suit glows a little, so it stays pink where the water has eaten the red)
+  return fin(fog(c, i.wp, z));
+}
 @vertex fn vsManta(i: VI) -> VO {
   var o: VO;
   let t = g.cam.w; let R = i.a.w; let sz = i.b.z;

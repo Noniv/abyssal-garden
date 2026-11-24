@@ -837,6 +837,73 @@ function meshGull() {
   }
   return m;
 }
+// scuba diver, swimming prone, human size (1.75 m + fins): head +z, feet -z, back (twin tanks) +y, hips at the origin. aux = the bone, in
+// twentieths: 0 torso + neck, 1 vest, 2 head, 3 mask glass, 4 tanks, 5 hoses, 6-8 left upper arm / forearm / hand (palm, fingers, thumb),
+// 9-11 the same on the right, 12-14 left thigh / shin + boot / fin, 15-17 the same on the right, 18 rubber (mask frame and strap,
+// mouthpiece, hose end; moves with the head). The vertex shader turns each bone about its joint (hip, knee, ankle, shoulder, elbow,
+// neck): the pivots below must match it
+function meshDiver() {
+  const m = new Mesh(), B = (b) => () => b / 20;
+  // a tube for bone b; sx / sy (a number, or one per path point) widen or flatten each ring about its own centre: the body is not round
+  const part = (b, pts, rad, sides, sx = 1, sy = 1) => {
+    const i0 = m.p.length / 3, n = pts.length, f = (a, k) => (Array.isArray(a) ? a[k] : a);
+    m.tube(pts, Array.isArray(rad) ? (k) => rad[k] : rad, sides, true, B(b));
+    for (let v = i0; v < m.p.length / 3; v++) { const k = min(floor((v - i0) / sides), n - 1), c = pts[k]; m.p[v * 3] = c[0] + (m.p[v * 3] - c[0]) * f(sx, k); m.p[v * 3 + 1] = c[1] + (m.p[v * 3 + 1] - c[1]) * f(sy, k); }
+  };
+  const ball = (b, c, r) => part(b, [-1, -0.7, 0, 0.7, 1].map((u) => [c[0], c[1], c[2] + u * r]), [0.02, 0.71, 1, 0.71, 0.02].map((u) => u * r), 8);
+  // torso: pelvis, waist, deeper and broader chest, shoulders; the vest over it; the neck and the yoke of the shoulders
+  part(0, [[0, 0, -0.1], [0, 0, -0.03], [0, 0, 0.06], [0, 0, 0.2], [0, 0.004, 0.34], [0, 0.01, 0.46], [0, 0.015, 0.54], [0, 0.02, 0.6]], [0.12, 0.155, 0.16, 0.135, 0.15, 0.175, 0.185, 0.11], 16, 1, [0.8, 0.78, 0.72, 0.7, 0.74, 0.78, 0.72, 0.9]);
+  part(1, [[0, 0, 0.12], [0, 0, 0.22], [0, 0.004, 0.34], [0, 0.01, 0.46], [0, 0.013, 0.52]], [0.17, 0.157, 0.17, 0.2, 0.205], 16, 1, [0.72, 0.7, 0.74, 0.78, 0.76]);
+  part(0, [[0, 0.015, 0.52], [0, 0.035, 0.62], [0, 0.055, 0.72]], [0.095, 0.076, 0.07], 12);
+  part(0, [[-0.215, 0.015, 0.54], [0, 0.035, 0.56], [0.215, 0.015, 0.54]], [0.075, 0.09, 0.075], 10);
+  // head: hooded, a chin; the mask (rubber frame, then the glass) with its strap, the mouthpiece and the end of the hose
+  part(2, [[0, 0.085, 0.67], [0, 0.085, 0.72], [0, 0.085, 0.78], [0, 0.085, 0.84], [0, 0.085, 0.89], [0, 0.08, 0.93]], [0.075, 0.095, 0.102, 0.098, 0.075, 0.04], 14, 1, [1.05, 1.12, 1.1, 1, 0.95, 0.8]);
+  part(18, [[0, 0.108, 0.85], [0, 0.108, 0.915]], 0.082, 14, 1.25, 0.72);
+  part(3, [[0, 0.108, 0.91], [0, 0.108, 0.94]], 0.07, 14, 1.25, 0.72);
+  part(18, [[0.1, 0.108, 0.87], [0.112, 0.1, 0.8], [0.09, 0.07, 0.72], [0, 0.06, 0.69], [-0.09, 0.07, 0.72], [-0.112, 0.1, 0.8], [-0.1, 0.108, 0.87]], 0.009, 5);
+  part(18, [[0, 0.03, 0.86], [0, 0.03, 0.93], [0, 0.03, 0.975]], [0.016, 0.02, 0.036], 8, 1.3, 0.7);
+  part(18, [[0.13, 0.1, 0.56], [0.14, 0.06, 0.68], [0.12, 0, 0.82], [0.05, 0, 0.93], [0, 0.03, 0.95]], 0.013, 6);
+  // twin tanks on the back with their valves, the manifold and first stage, the hoses (main, and the gauge on a hose to the left hip)
+  for (const sx of [-1, 1]) {
+    part(4, [[sx * 0.1, 0.23, -0.1], [sx * 0.1, 0.23, -0.05], [sx * 0.1, 0.23, 0.2], [sx * 0.1, 0.23, 0.45], [sx * 0.1, 0.23, 0.53]], [0.01, 0.07, 0.088, 0.088, 0.04], 12);
+    part(5, [[sx * 0.1, 0.27, 0.53], [sx * 0.1, 0.3, 0.55], [sx * 0.1, 0.33, 0.55]], [0.022, 0.02, 0.026], 8);
+  }
+  part(5, [[-0.1, 0.285, 0.52], [0.1, 0.285, 0.52]], 0.026, 8);
+  part(5, [[0, 0.29, 0.52], [0, 0.32, 0.5]], 0.034, 8);
+  part(5, [[0.03, 0.31, 0.5], [0.12, 0.22, 0.53], [0.13, 0.1, 0.56]], 0.013, 6);
+  part(5, [[-0.03, 0.3, 0.5], [-0.15, 0.22, 0.4], [-0.24, 0.04, 0.3], [-0.22, -0.02, 0.14], [-0.2, -0.04, 0.06]], 0.01, 6);
+  ball(5, [-0.2, -0.04, 0.05], 0.03);
+  for (const sg of [-1, 1]) {
+    // arm, a little bent at the elbow, hanging along the body: the shoulder (sg*.225, -.01, .52), elbow (sg*.25, -.05, .26), wrist (sg*.16, -.11, .06)
+    const a = sg < 0 ? 6 : 9, S = [sg * 0.225, -0.01, 0.52], E = [sg * 0.25, -0.05, 0.26], W = [sg * 0.16, -0.11, 0.06];
+    ball(a, S, 0.072);
+    part(a, [S, [sg * 0.238, -0.03, 0.39], E], [0.062, 0.055, 0.046], 10);
+    ball(a + 1, E, 0.048);
+    part(a + 1, [E, [sg * 0.205, -0.08, 0.16], W], [0.047, 0.043, 0.033], 10);
+    // the hand goes on from the wrist (d = the way the fingers point), as on a swimmer with relaxed arms: the palm faces up (its hollow up, the
+    // fingers a little curled upward), the thumb is on the inner side, towards the body, and the index finger is the inner one next to it
+    const d = [-sg * 0.3, -0.2, -0.93], at = (o, k, y = 0, x = 0) => [o[0] + d[0] * k + x, o[1] + d[1] * k + y, o[2] + d[2] * k];
+    const K = at(W, 0.088), M = at(W, 0.044);
+    part(a + 2, [W, M, K], [0.03, 0.036, 0.034], 8, 1.35, 0.6);
+    [0.07, 0.08, 0.075, 0.06].forEach((L, f) => {
+      const x = sg * (-0.027 + 0.018 * f), b = at(K, 0, 0.004, x), mid = at(K, L * 0.55, 0.012, x), e = at(K, L, 0.028, x);
+      part(a + 2, [b, mid, e], [0.0115, 0.0095, 0.0075], 6);
+    });
+    const T0 = at(W, 0.03, 0.002, -sg * 0.032);
+    part(a + 2, [T0, at(T0, 0.032, 0.008, -sg * 0.012), at(T0, 0.058, 0.018, -sg * 0.02)], [0.015, 0.012, 0.009], 6);
+    // leg: the hip (sg*.09, 0, -.02), knee (sg*.09, -.015, -.47), ankle (sg*.09, -.03, -.9); a calf; the boot to the toes, then the fin blade
+    const l = sg < 0 ? 12 : 15, x = sg * 0.09;
+    ball(l, [x, 0, -0.02], 0.09);
+    part(l, [[x, 0, -0.02], [x, -0.005, -0.12], [x, -0.012, -0.3], [x, -0.015, -0.47]], [0.092, 0.088, 0.072, 0.054], 12);
+    ball(l + 1, [x, -0.015, -0.47], 0.055);
+    part(l + 1, [[x, -0.015, -0.47], [x, -0.02, -0.58], [x, -0.026, -0.74], [x, -0.03, -0.9]], [0.055, 0.064, 0.05, 0.04], 12);
+    part(l + 1, [[x, -0.03, -0.9], [x, -0.034, -0.95], [x, -0.04, -1.02], [x, -0.045, -1.08]], [0.043, 0.05, 0.045, 0.034], 10, 1, [1, 0.85, 0.8, 0.8]);
+    const rows = [], fa = l / 20 + 2 / 20;
+    for (let i = 0; i <= 8; i++) { const u = i / 8, z = -1.04 - 0.5 * u, w = 0.045 + 0.12 * pow(u, 0.6) * (1 - 0.3 * u * u), cx = x + sg * 0.015 * u, y = -0.05 - 0.03 * u; rows.push([m.v(cx - w, y + 0.012, z, fa), m.v(cx, y - 0.008, z, fa), m.v(cx + w, y + 0.012, z, fa)]); }
+    for (let i = 0; i < 8; i++) for (let c = 0; c < 2; c++) m.quad(rows[i][c], rows[i][c + 1], rows[i + 1][c + 1], rows[i + 1][c]);
+  }
+  return m;
+}
 // shark (great white): length 2 along z (nose +z, tail -z), local y up. A dense, smooth body with a carved open mouth,
 // gill slits and teeth, plus thin aerofoil-section fins. aux (normal.w) = how deep inside a mouth / gill slit a
 // vertex is (0..1), -1 on teeth; the shader darkens and whitens by it
