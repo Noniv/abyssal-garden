@@ -19,10 +19,23 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 
 - **Kelp forests** that sway in the current and sparkle with tiny gold and green specks
 - **Light rays** streaming down from a wavy surface, with shimmering caustics on the sea floor
-- **A sunken wooden ship**, a **giant stone whale tail**, rock arches, canyons and floating boulders
-- **Manta rays**, schools of fish, rising bubbles and drifting particles
+- **A sunken wooden ship**, a **giant stone whale tail**, rock arches and canyons
+- **Manta rays**, **great white sharks**, schools of fish, rising bubbles and drifting particles
 - **A purple grotto** with glowing magenta ground cover, coral and barrel sponges
-- **A soundscape** made up as you listen: a deep rumble, distant whale calls, soft chimes and bubbles
+- **The world above the water:** swim up through the surface and look out over a rippling sea with sky, clouds and sun glitter (you sink back once you stop swimming up)
+- **Blacktip reef sharks**: three smaller, fast sharks that cruise along the sea floor (about twice the speed of the big sharks), swerving by up to 30 degrees now and then, always steering clear of the rocks and away from the thick kelp (they roam the open sea floor). Black tips on the dorsal fin (over a white band), the other fins and the tail, like the ones in the Maldives; a slight, slow tail beat and a steady cruise just above the floor. When one swerves, the nose turns first and the body follows the path the head took, bending in an S. They are solid too, show as yellow dots on the map, and `8` puts you in the path of one
+- **A livelier sea floor**: low flat ground is rippled sand and silt (ripples run across the current), with soft contact shadows under rocks and plants. Sea urchins, starfish, shells and sea cucumbers lie on it; colonies of garden eels sway in the current and sink into the sand when you come close; table corals, brain corals and anemones (with clownfish) grow on the reefs.
+- **Small touches**: slow cloud shadows drift over the sea bed, drifting particles follow the current, your head sways very slightly when you're underwater, and fish shy away when you swim close.
+- **Camera and water**: depth of field (soft distance, soft foreground) and motion blur when you sprint or turn fast; swimming close to the sand stirs up puffs of sediment that your wake drags back, then spread, drift and settle.
+- **More life**: small reef fish (tangs, damsels, anthias) around the reefs, jellyfish drifting in open water, and faintly glowing particles in the deep.
+- **Sound with a place**: the low rumble of the vents grows as you approach and pans to where they are; a blacktip passing close is heard as a pressure whoosh.
+- **Sleeping nurse sharks**: tawny ochre, blotched with dark spots, sleeping in piles of four to six on the flat sea floor, noses together and slender, S-curved bodies fanned out like spokes, slowly flapping their pointed fins, swaying their tails and blinking now and then as they breathe. They are solid, like rocks, and each group is a red pin on the map
+- **Four dark tunnels** winding through the big rock walls and the pillar: swim in at one mouth and find your way to the other. Inside it is pitch black, so your torch switches itself on a few metres in (with a click) and off again on the way out. Both ends of every tunnel are marked on the map with an orange dot and the tunnel's letter
+- **Two scuba divers** swim the sea on long loops worked out at startup so they never meet rock: one in black and yellow cruises at mid-depth, one in a pink suit drifts more slowly just above the sea floor. Both kick their fins, bend their arms and breathe out bursts of bubbles from the regulator.
+- **Seagulls**: a flock rests on the rocks that stand out of the water. Walk or swim up to them and they take off, circle high over the atoll, and settle again once you have gone.
+- **A little map circle** (bottom right) showing where you are, which way you look and where the six viewpoints are
+- **An underwater current** that carries you gently in one direction while you bob up and down, if you float still
+- **A soundscape** made up as you listen: underwater only muffled, deaf "blop blop" bubbles and the diver's own breathing; above the surface wind, swell, lapping ripples and gulls, with a splash as you break through
 
 | | |
 |---|---|
@@ -36,16 +49,23 @@ Nothing to install, and it works offline. It needs a browser with **WebGPU**. If
 | | Keyboard & mouse |
 |---|---|
 | Look around | Move the mouse |
-| Swim | `W` `A` `S` `D` |
+| Swim | `W` `A` `S` `D` or the arrow keys |
+| Geyser (easter egg) | `G` takes you to the geyser; swim over it |
+| Long tunnel | `T` drops you above its first shaft; it runs under the sea floor from one end of the world to the other (the torch switches on by itself) |
+| Easter eggs | The first tunnel shaft is a downdraft that pulls you in. Hang still by a quiet spot on the deep floor and a whale sings and passes overhead. After a while in the dark with the torch on, glow fish gather in its beam. Hang still near the floor for a minute and a shark comes to circle you. Hang still near the surface and jellyfish drift in to a ring around you. The geyser throws you 400 m up (about 9 s) over a made-up archipelago that goes on to the horizon, with the sound dying away as you climb; you fall back, drifting to a landing on the water ~28 m from the geyser. |
+| Easter egg shortcuts | `G` geyser · `T` tunnel entrance · `U` whale spot (hold still) · `I` glow fish · `O` downdraft · `P` shark · `J` jellyfish · `K` the 400 m throw · `V` the seagulls · `X` the divers (press again for the other one) |
 | Up / down | `E` / `Q` |
-| Swim faster | Hold `Shift` |
+| Swim faster | Hold `Shift`, or tap `↑` twice quickly and hold it on the second tap |
 | Jump to a viewpoint | `1` to `6` (the spots in the screenshots) |
+| Visit the sleeping nurse sharks | `7` (press again for the next group) |
+| Meet the blacktip reef sharks | `8` (puts you in the path of one; press again for the next) |
 | Menu | `Esc` releases the mouse and opens the menu with the list of controls; **Resume** takes you back |
-| Sound on / off | `M` (sound starts when you dive in) |
+| Sound on / off | `M`, or the **Sound** buttons in the menu (remembered; sound starts when you dive in) |
+| Map circle on / off | `N` |
 | Performance stats | `H` |
 | Detail level | **Low**, **Medium** or **High** in the menu (reloads the page) |
 
-The seabed, cliffs and arches are solid: you glide along the rock instead of swimming into it, and you still fit through every tunnel and arch. Kelp, plants, corals, sponges, loose rocks, the floating boulders, the ship and the whale tail you can swim through.
+The seabed, cliffs and arches are solid: you glide along the rock instead of swimming into it, and you still fit through every tunnel and arch. Kelp, plants, corals, sponges, loose rocks, the ship and the whale tail you can swim through. Sharks, blacktip reef sharks, manta rays and the sleeping nurse sharks are solid too: you can't swim through their bodies, fins or wings, and you slide along them (fish are small enough to swim through).
 
 **On a touchscreen:** hold one finger down to swim forward and slide it to steer. Put a second finger down to go faster. The `≡` button in the corner opens the menu. Phones always show the scene in landscape and start on Low or Medium detail. (Touch support is experimental.)
 
